@@ -1,19 +1,17 @@
-from abc import ABC, abstractmethod
 from datetime import datetime
 from scipy.linalg import hadamard
-from pade.utils import num2string
+from pade.utils import num2string, get_kwarg
 import sys
 import os
-from svg_schematic import *
-from inform import Error, error, os_error, warn
+from inform import warn, fatal
 import re
 
 
-class Design(ABC):
+class Design:
     """
     Design class
     """
-    def __init__(self, cell_name, parameters={}, library_name="CBC", netlist_filename=None, **kwargs):
+    def __init__(self, cell_name, parameters={}, **kwargs):
         """
         Initialize design
         """
@@ -26,15 +24,12 @@ class Design(ABC):
         self.add_net('0')
         # Design meta:
         self.cell_name = cell_name
-        self.library_name = library_name
         # Netlist string. Contains all design-related info. Is completed by simulator
         self.netlist_string = ""
         # Initial conditions
-        self.ic = None if not 'ic' in kwargs else kwargs['ic']
-        # INIT
-        ## Initialize the design object by connecting all components in the wire_up() method and write the resulting netlist to self.netlist_string
-        self.wire_up()
-        self.write_netlist(netlist_filename)
+        self.ic = get_kwarg(kwargs, 'ic')
+        self.netlist_filename = get_kwarg(kwargs, 'netlist_filename')
+
 
     def __str__(self):
         s = "# -------------------------------------------------------- #\n"
@@ -147,8 +142,7 @@ class Design(ABC):
         """
         Return commented cell meta text
         """
-        s = "// Design library name: {}\n".format(self.library_name)
-        s += "// Design cell name: {}\n".format(self.cell_name)
+        s = "// Design cell name: {}\n".format(self.cell_name)
         return s
 
     def get_parameter_string(self):
@@ -207,15 +201,14 @@ class Design(ABC):
         self.netlist_string += lines
 
     def get_netlist_string(self):
+        self.rewrite_netlist()
         return self.netlist_string
 
-class Cell(object):
+class Cell:
     """
     Cell view
-
-
     """
-    def __init__(self, cell_name, instance_name, design, declare=True, parent_cell=None, library_name="CBC", netlist_filename=None, **kwargs):
+    def __init__(self, cell_name, instance_name, design, declare=True, parent_cell=None, netlist_filename=None, **kwargs):
         """
         Initialize cell_view
 
@@ -237,7 +230,6 @@ class Cell(object):
         self.nets = {}
         self.cell_name = cell_name
         self.instance_name = instance_name
-        self.library_name = library_name
         # Parameters dict (Only parameters that is passed to spectre)
         self.parameters = {}
         # Connect cell and design/parent cell
@@ -265,6 +257,7 @@ class Cell(object):
             Supports line continuity for both parameters and terminals.
 
         """
+        # Clean file by removing new line characters
         with open(file, "r") as raw:
             string_clean_lines = ""
             for line in raw:
@@ -274,64 +267,60 @@ class Cell(object):
                 else:
                     clean_line += '\n'
                 string_clean_lines += clean_line
-        clean_path = f'spectre_related_data/netlists/cell_netlists/{self.cell_name}_clean.scs'
-        with open(clean_path, 'w+') as clean:
-            clean.write(string_clean_lines)
 
-        with open(clean_path, 'r') as clean:
-            for line in clean:
-                #Add parameters
-                if (line.startswith('ends') or line == '\n' or line == ''):
-                    pass
-                elif line.startswith('parameters'):
-                    parameters_dict = {}
-                    # Add parameters in form a=b (no whitespace)
-                    for param in line.split()[1:]:
-                        search_param = re.search(".=.", param)
-                        if search_param != None:
-                            parameter = search_param.string.split("=")
-                            parameters_dict[parameter[0]] = parameter[1]
-                    # Find all parameters in format a = b (with whitespaces)
-                    for i, param in enumerate(line.split()):
-                        if(param == '='):
-                            parameters_dict[line.split()[i-1]] = line.split()[i+1]
-                    design.add_parameters(parameters_dict)
+        for line in string_clean_lines.splitlines():
+            #Add parameters
+            if (line.startswith('ends') or line == '\n' or line == ''):
+                pass
+            elif line.startswith('parameters'):
+                parameters_dict = {}
+                # Add parameters in form a=b (no whitespace)
+                for param in line.split()[1:]:
+                    search_param = re.search(".=.", param)
+                    if search_param != None:
+                        parameter = search_param.string.split("=")
+                        parameters_dict[parameter[0]] = parameter[1]
+                # Find all parameters in format a = b (with whitespaces)
+                for i, param in enumerate(line.split()):
+                    if(param == '='):
+                        parameters_dict[line.split()[i-1]] = line.split()[i+1]
+                self.add_parameters(parameters_dict)
 
-                # Define terminals
-                elif line.startswith('subckt'):
-                    for terminal in line.split()[1:]:
-                        if terminal != self.cell_name:
-                            self.add_terminal(terminal)
-                    # Define cell name
-                    self.cell_name = line.split()[1]
-                # Define subcells in subckt
-                else:
-                    sc_connected_nets   = []
-                    sc_terminals        = []
-                    sc_param_dict = {}
-                    # Find out where parameters are declared (used for location of instance name, terminals etc.)
-                    for i, x in enumerate(line.split()):
-                        if(re.search('.=.', x) != None):
-                            sc_first_param_location = i
-                            break
-                    sc_cell_name        = line.split()[sc_first_param_location-1]
-                    sc_instance_name    = line.split()[0]
-                    for i, nets in enumerate(line.split()[1:sc_first_param_location-1]):
-                        sc_connected_nets.append(nets)
-                        sc_terminals.append(str(i))
-                    for i, sc_param in enumerate(line.split()[sc_first_param_location:]):
-                        sc_param_key, sc_param_value = sc_param.split('=')
-                        sc_param_dict[sc_param_key] = sc_param_value
-                    exclude_list = kwargs['exclude_list'] if 'config_file' in kwargs else []
-                    skip_subcell = 0
-                    for exclusion in exclude_list:
-                        if(exclusion in line):
-                            skip_subcell = 1
-                    if(skip_subcell == 0):
-                        subcell = Cell(sc_cell_name, sc_instance_name, design, declare=False, parent_cell=self, library_name=self.library_name)
-                        subcell.add_multiple_terminals(sc_terminals)
-                        subcell.quick_connect(sc_terminals, sc_connected_nets)
-                        subcell.add_parameters(sc_param_dict)
+            # Define terminals
+            elif line.startswith('subckt'):
+                if not self.cell_name == line.split()[1]:
+                    fatal('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
+
+                for terminal in line.split()[2:]:
+                    self.add_terminal(terminal)
+            # Define subcells in subckt
+            else:
+                sc_connected_nets   = []
+                sc_terminals        = []
+                sc_param_dict = {}
+                # Find out where parameters are declared (used for location of instance name, terminals etc.)
+                for i, x in enumerate(line.split()):
+                    if(re.search('.=.', x) != None):
+                        sc_first_param_location = i
+                        break
+                sc_cell_name        = line.split()[sc_first_param_location-1]
+                sc_instance_name    = line.split()[0]
+                for i, nets in enumerate(line.split()[1:sc_first_param_location-1]):
+                    sc_connected_nets.append(nets)
+                    sc_terminals.append(str(i))
+                for i, sc_param in enumerate(line.split()[sc_first_param_location:]):
+                    sc_param_key, sc_param_value = sc_param.split('=')
+                    sc_param_dict[sc_param_key] = sc_param_value
+                exclude_list = kwargs['exclude_list'] if 'config_file' in kwargs else []
+                skip_subcell = 0
+                for exclusion in exclude_list:
+                    if(exclusion in line):
+                        skip_subcell = 1
+                if(skip_subcell == 0):
+                    subcell = Cell(sc_cell_name, sc_instance_name, design, declare=False, parent_cell=self)
+                    subcell.add_multiple_terminals(sc_terminals)
+                    subcell.quick_connect(sc_terminals, sc_connected_nets)
+                    subcell.add_parameters(sc_param_dict)
 
     def add_parameters(self, parameters):
         """
@@ -392,7 +381,6 @@ class Cell(object):
         """
         # META
         s = ""
-        s += f"// Library name: {self.library_name}\n"
         s += f"// Cell name: {self.cell_name}\n"
         s += "// View name: schematic\n"
         s += f"subckt {self.cell_name} "
@@ -585,28 +573,8 @@ class Cell(object):
         """
         self.parameters[name] = num2string(value)
 
-    def draw_schematic(self):
-        """
-        Draw SVG Schematic
-        """
-        try:
-            with Schematic(filename='latch_test.svg', line_width=1, pad=100):
-                # pos spacing
-                hspace = 200
-                vspace = 200
-                for t in self.terminals:
-                    if not t.pos:
-                        raise RuntimeError(f'Cannot generate schematic for cell {self.instance_name}. Terminals has no pos information')
-                    Pin(C=(hspace*t.pos[0], -vspace*t.pos[1]))
 
-
-        except Error as e:
-            e.report()
-        except OSError as e:
-            error(os_error(e))
-
-
-class Terminal(object):
+class Terminal:
     """
     Terminal
     A Terminal is owned by a Cell and connected to a net
@@ -667,7 +635,7 @@ class Terminal(object):
         else:
             raise ValueError('Could not connect. {} is not a Net or a string'.format(net))
 
-class Net(object):
+class Net:
     """
     Net
     A net is owned by a design/cell and connected to one or more terminals

@@ -70,7 +70,7 @@ class tran(Analysis):
     """
     Transient analysis
     """
-    def __init__(self, name='tran', parameters={}):
+    def __init__(self, name='tran', **parameters):
         default_params = {
             'cmin': 0,
             'write': '"spectre.ic"',
@@ -89,7 +89,7 @@ class dc(Analysis):
     """
     DC analysis
     """
-    def __init__(self, name='dc', parameters={}):
+    def __init__(self, name='dc', **parameters):
         default_params = {
             'maxiters': 150,
             'maxsteps': 10000,
@@ -99,7 +99,7 @@ class dc(Analysis):
         p = default_params
         for param in parameters:
             p[param] = parameters[param]
-        super().__init__(name, type='dc', parameters=p)
+        super().__init__(name, type='dc', parameters=parameters)
 
 
 class dcOpInfo(Analysis):

@@ -1,0 +1,17 @@
+Metadata-Version: 2.1
+Name: pade
+Version: 0.0.1
+Summary: Python based Analog Design Environment
+Home-page: UNKNOWN
+Author: Fredrik Feyling
+Author-email: fredrik.feyling@hotmail.com
+License: UNKNOWN
+Platform: UNKNOWN
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
+# pade
+Python based Analog Design Environment
+
+

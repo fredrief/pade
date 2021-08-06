@@ -53,6 +53,9 @@ def num2string(val, asint=False, decimals=8):
         numstring = f'{val:{width}.{precision}}' + prefix
     return numstring
 
+def get_kwarg(dict, key):
+    """ Returns dict[key] if exist else None """
+    return dict[key] if key in dict else None
 
 
 def file_exist(filename):

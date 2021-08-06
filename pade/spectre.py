@@ -18,7 +18,7 @@ class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, design, analysis, output_selections=[], command_options=['-format', 'psfascii'], at_remote=False, **kwargs):
+    def __init__(self, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps'], at_remote=False, **kwargs):
         """
         Parameters:
             design: Design
@@ -45,12 +45,12 @@ class Spectre(object):
 
         """
         # Parse config file
-        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'pade/config/user_config.yaml'
+        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'config/user_config.yaml'
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         self.config = config
         self.local_info = config['local_info']
-        spectre_setup = kwargs['spectre_setup'] if 'spectre_setup' in kwargs else 'pade/config/spectre_setup.yaml'
+        spectre_setup = kwargs['spectre_setup'] if 'spectre_setup' in kwargs else 'config/spectre_setup.yaml'
         with open(spectre_setup, 'r') as f:
             self.spectre_options = yaml.safe_load(f)
 
@@ -59,8 +59,8 @@ class Spectre(object):
         self.output_selections = output_selections
         # paths and names
         self.cell_name = design.cell_name # Netlist/design cell name
-        self.local_netlist_dir = f"{self.local_info['local_root_dir']}/{self.local_info['local_netlist_dir']}/{self.cell_name}"
-        mkdir(self.local_netlist_dir)
+        self.project_root_dir = f"{self.local_info['local_project_root_dir']}/{self.cell_name}"
+        self.local_netlist_dir = f"{self.project_root_dir}/{self.cell_name}_netlists"
 
         # Initialization
         self.analysis = analysis # []
@@ -144,7 +144,6 @@ class Spectre(object):
         [MODELFILE] will be replaced by model file in simulation
         """
         self.netlist_string = "// Generated for: spectre\n"
-        self.netlist_string += "// Design library name: {}\n".format(self.design.library_name)
         self.netlist_string += "// Design cell name: {}\n".format(self.cell_name)
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
@@ -259,7 +258,8 @@ class Spectre(object):
 
             # Run sim
             disp_func('\t', f'Simulating: {corner.name}')
-            with open(f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log", 'wb') as f:
+            log_file =f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_logs/spectre_sim.log"
+            with open(log_file, 'wb') as f:
                 process = self.ssh.execute(popen_cmd)
                 if daemon_logf is None:
                     for line in iter(process.stdout.readline, b''):
@@ -278,7 +278,7 @@ class Spectre(object):
                     err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
                     errors = int(status_list[err_idx])
                     if errors:
-                        fatal('Errors occurred during spectre simulation. See spectre_related_data/logs/spectre_sim.log for details')
+                        fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
                 else:
                     for line in iter(process.stdout.readline, b''):
                         f.write(line)
@@ -335,7 +335,8 @@ class Spectre(object):
 
         # Run sim
         display('\t', f'Simulating: {netlist_name}')
-        with open(f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log", 'wb') as f:
+        log_file = f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log"
+        with open(log_file, 'wb') as f:
             process = self.ssh.execute(popen_cmd)
             for line in iter(process.stdout.readline, b''):
                 f.write(line)
@@ -349,7 +350,7 @@ class Spectre(object):
             err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
             errors = int(status_list[err_idx])
             if errors:
-                fatal('Errors occurred during spectre simulation. See spectre_related_data/logs/spectre_sim.log for details')
+                fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
 
         display(info, "SPECTRE SIMULATION COMPLETE")
         display('\t', f"Raw data directory: {self.host}:{self.remote_psf_dir}")
@@ -383,7 +384,8 @@ class Spectre(object):
 
             # Run sim
             display('\t', f'Simulating: {corner}')
-            with open(f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log", 'wb') as f:
+            log_file = f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log"
+            with open(log_file, 'wb') as f:
                 process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE)
                 for line in iter(process.stdout.readline, b''):
                     f.write(line)
@@ -397,7 +399,7 @@ class Spectre(object):
                 err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
                 errors = int(status_list[err_idx])
                 if errors:
-                    fatal('Errors occurred during spectre simulation. See spectre_related_data/logs/spectre_sim.log for details')
+                    fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
 
         display(info, "SPECTRE SIMULATION COMPLETE")
         display('\t', f"Raw data directory: {self.local_info['local_raw_dir']}")

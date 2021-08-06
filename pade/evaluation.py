@@ -176,11 +176,11 @@ class Evaluation:
         for e in self.expressions:
             summary_dict['Parameter'].append(e.name)
             # Result values
-            res_val_arr = res.loc[res['Parameter'] == e.name].iloc[0,1:].apply(np.asarray).to_numpy()
+            res_val_arr = res.loc[e.name].apply(np.asarray).to_numpy()
             # Result passed
-            res_stat_arr = res.loc[res['Parameter'] == e.name].iloc[0,1:].apply(lambda s: s.get_status()).to_numpy()
+            res_stat_arr = res.loc[e.name].apply(lambda s: s.get_status()).to_numpy()
             # Unit
-            unit_arr = res.loc[res['Parameter'] == e.name].iloc[0,1:].apply(lambda s: s.get_unit())
+            unit_arr = res.loc[e.name].apply(lambda s: s.get_unit())
             unit = e.unit if e.unit is not None else unit_arr[0]
             for name, func in statistics.items():
                 if not name=='Yield':
@@ -203,7 +203,7 @@ class Evaluation:
         if self.html_dir is None:
             warn('Cannot create table, no html output specified')
             return
-        # Create directory is it does not exist
+        # Create directory if it does not exist
         mkdir(self.html_dir)
         # Formatter:
         htmlstr = lambda s: '{:.2f~P}'.format(s) if not isinstance(s, str) else s

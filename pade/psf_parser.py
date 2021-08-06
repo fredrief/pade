@@ -8,7 +8,6 @@ from numbers import Number
 import pandas as pd
 import numpy as np
 import subprocess
-import sys
 import os
 import yaml
 
@@ -26,14 +25,14 @@ class PSFParser(object):
                 the raw data directories, both local and remote.
         """
         # Parse config file
-        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'pade/config/user_config.yaml'
+        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'config/user_config.yaml'
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         self.config = config
         self.local_info = config['local_info']
         self.cell_name = cell_name
-        self.local_path = f"{self.local_info['local_raw_dir']}"
-        self.local_netlist_dir = f"{self.local_info['local_root_dir']}/{self.local_info['local_netlist_dir']}/{self.cell_name}"
+        self.local_path = f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_simulation_output"
+        self.local_netlist_dir = f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_netlists"
 
         # If MC analysis, add mcrun to simulation name
         self.simulations = []
@@ -81,7 +80,7 @@ class PSFParser(object):
         else:
             simulations_to_fetch = self.simulations
         for simulation in simulations_to_fetch:
-            local_path = to_path(self.local_path, self.cell_name)
+            local_path =self.local_path
             simulation_raw_dir = to_path(local_path, simulation)
             if not simulation in new_runs and file_exist(simulation_raw_dir) and not fetch_all:
                 display(info, f'Found cached raw data directory: {simulation_raw_dir}')
@@ -106,7 +105,7 @@ class PSFParser(object):
                 If running a montecarlo analysis, specify the run number. This will add to the parsed signal output
         """
         # Fetch psf raw dir if it does not exist
-        local_raw_dir = to_path(self.local_path, self.cell_name)
+        local_raw_dir = self.local_path
         if not file_exist(self.local_path):
             self.fetch_raw_data()
 
@@ -195,140 +194,3 @@ class PSFParser(object):
             if analysis in identifier:
                 df_dict[identifier.replace(analysis + ':', '')] = self.signals[identifier].trace
         return pd.DataFrame(df_dict)
-class PSFParser_old(object):
-    """
-    Helper class for parsing psfascii files
-    """
-    def __init__(self, cell_name, **kwargs):
-        """
-        Arguments:
-            remote_psf_path: str
-                Path to raw data directory
-        """
-        # Parse config file
-        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'pade/config/user_config.yaml'
-        with open(config_file, 'r') as f:
-            config = yaml.safe_load(f)
-        self.config = config
-        self.local_info = config['local_info']
-        self.remote_info = config['remote_info']
-        self.cell_name = cell_name
-        self.remote_psf_path = f"{self.remote_info['remote_raw_dir']}/{self.cell_name}.raw"
-        self.local_path = f"{self.local_info['local_raw_dir']}/{self.cell_name}"
-        self.traces = {}
-
-    def fetch_raw_data(self, filename):
-        """
-        Fetch raw data
-        """
-        remote_path = f"{self.remote_info['server_address']}:{self.remote_psf_path}"
-        local_path = self.local_path
-        print('\n# FETCHING RAW SIMULATION DATA')
-        print(f'## FROM: {remote_path}/{filename}')
-        print(f'## TO:   {local_path}/{filename}')
-        # Create path if it does not exist
-        if not os.path.exists(local_path):
-            os.mkdir(local_path)
-
-        p = subprocess.Popen(["scp", f"{self.remote_info['server_address']}:{self.remote_psf_path}/{filename}", f"{self.local_info['local_raw_dir']}/{self.cell_name}/{filename}"])
-        sts = os.waitpid(p.pid, 0)
-        print('# FETCHING COMPLETE')
-
-    def parse(self, filename):
-        """
-        Parse psf file into traces
-        """
-        # Fetch psf file if it does not exist
-        if not file_exist(f'{self.local_path}/{filename}'):
-            self.fetch_raw_data(filename)
-        print(f'\n# PARSING PSF FILE: {filename}')
-        psf = PSF(f'{self.local_path}/{filename}')
-        for signal in psf.all_signals():
-            self.traces[signal.name] = signal.ordinate
-        if psf.sweeps:
-            for sweep in psf.sweeps:
-                self.traces[sweep.name] = sweep.abscissa
-
-    def parse_tran_data(self, filename, cache=True):
-        """
-        Parse raw transient simulation data to numpy arrays
-        Assumes raw data .tran file is already copied from server
-        """
-        # Fetch psf file if it does not exist
-        if not file_exist(f'{self.local_path}/{filename}'):
-            print(f'\n# FETCHING PSF FILE: {filename}')
-            self.fetch_raw_data(filename)
-        if cache and os.path.exists(f'{self.local_path}/transient_traces.npy'):
-            self.load_transient_traces()
-
-        print(f'\n# PARSING PSF FILE: {filename}')
-        # Read and strip all lines
-        filename = f'{self.local_path}/{filename}'
-        content = [line.strip() for line in open(filename, 'r')]
-        content_len = len(content)
-
-        # Number of traces
-        value_index = content.index("VALUE")
-        trace_index = content.index("TRACE")
-        trace_count = value_index - trace_index
-        value_count = int(np.floor(len(content[value_index+1:]) / trace_count))
-
-        # Declear dictionary for traces
-        traces = {}
-        traces['time'] = np.zeros((value_count, 1))
-        for vi in range(trace_index+1, value_index):
-            key = content[vi].split('"')
-            if len(key) >= 2:
-                key = content[vi].split('"')[1]
-                traces[key] = np.zeros((value_count, 1))
-
-        # Parse traces
-        time_count = -1
-        trace_len = len(range(value_index+1, content_len))
-        for i in range(value_index+1, value_index+1 + trace_count*value_count):
-            if content[i] == 'END':
-                break
-            else:
-                key = content[i].split('"')[1]
-                if key == 'time':
-                    time_count += 1
-                value = content[i].split('"')[2]
-                traces[key][time_count] = value
-                # Print progress every 1e4 index
-                try:
-                    if i % (trace_len//1e4) == 0:
-                        print("## Progress: %.2f%%    \r" % (100*(i/trace_len)), end='', flush=True)
-                except ZeroDivisionError:
-                    pass
-        print('', flush=True)
-        while traces['time'][-1] == 0:
-            for key in traces:
-                traces[key] = traces[key][:-1]
-
-        self.content_len = time_count
-        self.runtime = traces['time'][-1][0]
-        self.traces = traces
-        # Save dictionary as npy file
-        print('## Write npy file')
-        with open(f'{self.local_path}/transient_traces.npy', 'wb') as f:
-            np.save(f, traces)
-        print('# PARSING COMPLETE')
-        self.npy_file = f'{self.local_path}/transient_traces.npy'
-
-    def load_transient_traces(self):
-        """
-        Load traces from numpy file: f'{self.local_path}/transient_traces.npy'
-        """
-        if os.path.exists(f'{self.local_path}/transient_traces.npy'):
-            # Workaround for np.load to allow pickle
-            np_load_old = np.load
-            # modify the default parameters of np.load
-            np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
-            with open(f'{self.local_path}/transient_traces.npy', 'rb') as f:
-                traces = np.load(f)[()]
-                self.traces = traces
-            # restore np.load for future normal usage
-            np.load=np_load_old
-            self.npy_file = f'{self.local_path}/transient_traces.npy'
-        else:
-            raise FileNotFoundError(f'{self.local_path}/transient_traces.npy')

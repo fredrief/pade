@@ -5,8 +5,7 @@ from pade.signal import Signal
 from pade.evaluation import Evaluation
 from pade.ssh_utils import SSH_Utils
 from pade import info, display, warn, error, fatal
-import numpy as np
-import pandas as pd
+import yaml
 
 class Test:
     """
@@ -63,11 +62,6 @@ class Test:
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
 
-        # Evaluation
-        self.expressions = expressions
-        self.html_dir = kwargs['html_dir'] if 'html_dir' in kwargs else None
-        self.latex_dir = kwargs['latex_dir'] if 'latex_dir' in kwargs else None
-
         # Init simulator
         sim = Simulator(design, analyses,
             command_options=command_options,
@@ -79,8 +73,18 @@ class Test:
             sim.append_netlist_line(string)
         self.simulator = sim
 
+        # Parse config file
+        results_dir = f"{sim.project_root_dir}/{design.cell_name}_results"
+
+        # Evaluation
+        self.expressions = expressions
+        self.html_dir = kwargs['html_dir'] if 'html_dir' in kwargs else results_dir
+        self.latex_dir = kwargs['latex_dir'] if 'latex_dir' in kwargs else results_dir
+
         # Hold simulation results
         self.signals = None # Parsed signals
+
+
 
     def run(self, cache=True, as_daemon=False, skip_run=False):
         """
@@ -153,6 +157,8 @@ class Test:
         self.evaluation = Evaluation(parser, expressions,
                             html_dir=self.html_dir, latex_dir=self.latex_dir )
         self.evaluation.evaluate()
+        if self.mcoptions is not None:
+            self.evaluation.create_summary()
         return self.evaluation.results
 
     def to_html(self):
