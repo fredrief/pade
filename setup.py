@@ -24,6 +24,7 @@ setuptools.setup(
         'shlib',
         'pint',
         'click',
+        'pandas',
     ],
     entry_points={
         'console_scripts': [
