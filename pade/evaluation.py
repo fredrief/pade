@@ -1,5 +1,5 @@
 from pade.signal import Signal
-from pade import ureg, Q_, warn, fatal
+from pade import ureg, Q_
 import numpy as np
 import numpy.lib.mixins
 import pandas as pd
@@ -24,7 +24,8 @@ class Specification:
         if isinstance(log_func, str):
             log_func = log_func.strip()
             if not len(values) == len(log_func.split(' ')):
-                fatal('Number of operators must equal number of values')
+                self.logger.error('Number of operators must equal number of values')
+                quit()
             try:
                 if len(log_func.split(' ')) == 1:
                     log_func = eval(f'lambda x,y: x {log_func} y')
@@ -33,9 +34,11 @@ class Specification:
                     f2 = log_func.split(' ')[1]
                     log_func = eval(f'lambda x,y,z: y {f1} x {f2} z')
             except SyntaxError:
-                fatal(f'Invalid logic function: {log_func}')
+                self.logger.error(f'Invalid logic function: {log_func}')
+                quit()
         else:
-            fatal(f'Logic function: {log_func} is not a string')
+            self.logger.error(f'Logic function: {log_func} is not a string')
+            quit()
         self.log_func = log_func
         self.values = values
 
@@ -198,10 +201,10 @@ class Evaluation:
         TODO: Color styling
         """
         if self.results is None:
-            warn('Cannot create table, no results available')
+            self.logger.warning('Cannot create table, no results available')
             return
         if self.html_dir is None:
-            warn('Cannot create table, no html output specified')
+            self.logger.warning('Cannot create table, no html output specified')
             return
         # Create directory if it does not exist
         mkdir(self.html_dir)
@@ -225,10 +228,10 @@ class Evaluation:
         Generate Latex table output
         """
         if self.results is None:
-            warn('Cannot create table, no results available')
+            self.logger.warning('Cannot create table, no results available')
             return
         if self.latex_dir is None:
-            warn('Cannot create table, no latex output specified')
+            self.logger.warning('Cannot create table, no latex output specified')
             return
         # Formatter:
         latexstr = lambda s: '${:.2f~Lx}$'.format(s)

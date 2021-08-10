@@ -1,26 +1,24 @@
 from pade.analysis import Analysis, Corner, Typical
 from pade.ssh_utils import SSH_Utils
 from shlib import mkdir, ls, to_path, rm
-from pade import info, display, warn, error, fatal
-from pade.utils import num2string
-import subprocess
-import sys
-import os
+from pade.utils import num2string, cat, writef
 import re
 import numpy as np
 import logging
 import daemon
 from daemon import pidfile
 import yaml
-
+import subprocess
 
 class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps'], at_remote=False, **kwargs):
+    def __init__(self, logger, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
         """
         Parameters:
+            logger: Logger
+                Logger object
             design: Design
                 Design/testbench to simulate
             analysis: [Analysis]
@@ -63,6 +61,7 @@ class Spectre(object):
         self.local_netlist_dir = f"{self.project_root_dir}/{self.cell_name}_netlists"
 
         # Initialization
+        self.logger = logger
         self.analysis = analysis # []
         self.design = design
         self.montecarlo_settings = None
@@ -72,20 +71,6 @@ class Spectre(object):
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
         # Corners:
         self.corners = kwargs['corners'] if 'corners' in kwargs else [Typical()]
-
-        # Remote stuff
-        self.at_remote = at_remote
-        if not at_remote:
-            self.remote_info = config['remote_info']
-            ssh = SSH_Utils(self.remote_info['server_address'])
-            self.ssh = ssh
-            self.remote_netlist_dir = f"{self.remote_info['remote_netlist_dir']}/{self.cell_name}_netlist"
-            if not ssh.path_exist(self.remote_netlist_dir):
-                ssh.mkdir(self.remote_netlist_dir)
-            self.remote_psf_dir = f"{self.remote_info['remote_raw_dir']}/{self.cell_name}_raw"
-            # Create remote raw directory if it does not exist
-            path = self.remote_psf_dir
-            ssh.mkdir(path)
 
     def _get_analysis_string(self):
         """
@@ -97,7 +82,8 @@ class Spectre(object):
         if self.montecarlo_settings:
             # If Montecarlo, only one corner is allowed
             if len(self.corners) > 1:
-                fatal('I don\'t want to run montecarlo with multiple corners, too much output will be generated. Please select only one corner in combination with montecarlo analysis.')
+                self.logger.error('I don\'t want to run montecarlo with multiple corners, too much output will be generated. Please select only one corner in combination with montecarlo analysis.')
+                quit()
             # MC analysis
             astr += 'montecarlo montecarlo numruns=1 '
             for param, value in self.montecarlo_settings.items():
@@ -205,231 +191,68 @@ class Spectre(object):
         One Netlist file per corner
         """
         local_netlist_path = to_path(self.local_netlist_dir, corner.name + '.txt')
-        with open(local_netlist_path, 'w') as f:
-            f.writelines(self._generate_netlist_string(corner))
+        writef(self._generate_netlist_string(corner), local_netlist_path)
 
-    def run_remote(self, cache=True, daemon_logf=None):
-        """
-        Run simulation(s) on remote server
-        """
-        disp_func = lambda *s: display(info, *s)
-        if daemon_logf is not None:
-            logger = self.init_logger(daemon_logf)
-            disp_func = logger.info
 
+    def run(self, cache=True, as_daemon=False):
+        """ Run simulation """
+
+        # Set first MC run
         mcrun = ''
         if self.montecarlo_settings is not None:
             mcrun += f"({self.montecarlo_settings['firstrun']})"
 
-        disp_func("START SPECTRE SIMULATION")
-        disp_func(f"Corners: {self.corners}{mcrun}")
+        self.logger.info("START SPECTRE SIMULATION")
+        self.logger.info(f"Corners: {self.corners}{mcrun}")
         new_corner_runs = []
+
         for corner in self.corners:
             # Check cache
             if cache:
-                remote_netlist = self.ssh.cat(to_path(self.remote_netlist_dir, f'{corner.name}.txt'))
-                local_netlist = self._generate_netlist_string(corner)
-                if (local_netlist == remote_netlist):
-                    disp_func(f'Netlist unchanged, skip simulation. Corner: {corner}')
+                prev_netlist = cat(self.local_netlist_dir)
+                new_netlist = self._generate_netlist_string(corner)
+                if (new_netlist == prev_netlist):
+                    self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
                     continue
 
-            # Write netlist and coy to remote
-            netlist_filename = f'{corner.name}.txt'
-            local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
-            remote_netlist_path = to_path(self.remote_netlist_dir, netlist_filename)
-            new_corner_runs.append(corner.name)
-            self.write_netlist(corner)
-            self.ssh.cp_to(local_netlist_path, remote_netlist_path)
-
-            # Clean up remote raw file directory before starting new simulation
-            # This is to avoid fetching unwanted analysis later
-            remote_raw_dir = to_path(self.remote_psf_dir, corner.name)
-            self.ssh.clean_up(remote_raw_dir)
-
-            # Remote connection commands
-            popen_cmd = [
-                f"{self.remote_info['start_up_commands']}",
-                "spectre", f"{remote_netlist_path}",
-                "-raw", f"{remote_raw_dir}"
-                ]
-            # Spectre commands
-            for cmd in self.command_options:
-                popen_cmd.append(cmd)
-
-            # Run sim
-            disp_func('\t', f'Simulating: {corner.name}')
-            log_file =f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_logs/spectre_sim.log"
-            with open(log_file, 'wb') as f:
-                process = self.ssh.execute(popen_cmd)
-                if daemon_logf is None:
-                    for line in iter(process.stdout.readline, b''):
-                        f.write(line)
-                        line_s = line.decode('ascii')
-                        # Only write time info to console
-                        progress_line = re.search('\(.* %\)', line_s)
-                        if progress_line:
-                            progress = line_s.split(')')[0].split('(')[1]
-                            analysis = line_s.split(':')[0].strip()
-                            if not analysis in ['ac', 'tran', 'noise', 'stb', 'dc']:
-                                continue
-                            print(f'{analysis}: {progress} \r', end="", flush=True)
-                    print('')
-                    status_list = line_s.split(' ')
-                    err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
-                    errors = int(status_list[err_idx])
-                    if errors:
-                        fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
-                else:
-                    for line in iter(process.stdout.readline, b''):
-                        f.write(line)
-                        line_s = line.decode('ascii')
-                        disp_func(line_s)
-
-        disp_func("SPECTRE SIMULATION COMPLETE")
-        disp_func('\t', f"Raw data directory: {self.remote_info['server_address']}:{self.remote_psf_dir}")
-        return new_corner_runs
-
-    def init_logger(self, logf):
-        """
-        Initialize and return logger for daemon simulations
-        """
-        logger = logging.getLogger('spectre')
-        logger.setLevel(logging.DEBUG)
-        fh = logging.FileHandler(logf, 'w')
-        fh.setLevel(logging.DEBUG)
-        formatstr = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        formatter = logging.Formatter(formatstr)
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
-        return logger
-
-    def simulate_local_netlist(self, local_netlist_path, simulation_name=None):
-        """
-        Simulate complete netlist from a local file
-        This functionality could be outside the Spectre object, but is kept inside for now
-        because of easy access to remote server address etc.
-        """
-        display(info, "START SPECTRE SIMULATION")
-        display('\t', f"With local netlist file: {local_netlist_path}")
-        # Create PosixPath object to get name
-        local_netlist_path = to_path(local_netlist_path)
-        netlist_name = local_netlist_path.name
-        simulation_name = simulation_name if simulation_name else local_netlist_path.sans_ext().name
-        remote_netlist_path = to_path(self.remote_netlist_dir, netlist_name)
-        self.ssh.cp_to(local_netlist_path, remote_netlist_path)
-
-        # Clean up remote raw file directory before starting new simulation
-        # This is to avoid fetching unwanted analysis later
-        remote_raw_dir = to_path(self.remote_psf_dir, simulation_name)
-        self.ssh.clean_up(remote_raw_dir)
-
-        # Remote connection commands
-        popen_cmd = [
-            f"{self.remote_info['start_up_commands']}",
-            "spectre", f"{remote_netlist_path}",
-            "-raw", f"{remote_raw_dir}"
-            ]
-        # Spectre commands
-        for cmd in self.command_options:
-            popen_cmd.append(cmd)
-
-        # Run sim
-        display('\t', f'Simulating: {netlist_name}')
-        log_file = f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log"
-        with open(log_file, 'wb') as f:
-            process = self.ssh.execute(popen_cmd)
-            for line in iter(process.stdout.readline, b''):
-                f.write(line)
-                line_s = line.decode('ascii')
-                # Only write time info to console
-                progress_line = re.search('\(\d* %\)', line_s)
-                if progress_line:
-                    progress = progress_line.group(0).strip('(').strip(')')
-                    print(f'Progress: {progress} \r', end="", flush=True)
-            status_list = line_s.split(' ')
-            err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
-            errors = int(status_list[err_idx])
-            if errors:
-                fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
-
-        display(info, "SPECTRE SIMULATION COMPLETE")
-        display('\t', f"Raw data directory: {self.host}:{self.remote_psf_dir}")
-        return [simulation_name]
-
-    def run_locally(self, cache=False):
-        """
-        Run simulation(s) locally on the computer initializing the simulation.
-        """
-        display(info, "START SPECTRE SIMULATION")
-        display(info, f"Corners: {self.model_files}")
-        new_corner_runs = []
-        for corner in self.corners:
-            # Cache currently not supported
-            # Write netlist and coy to remote
+            # Write netlist to file
             netlist_filename = f'{corner.name}.txt'
             local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
             new_corner_runs.append(corner.name)
             self.write_netlist(corner)
 
             # Spectre commands
-            local_raw_dir = to_path(self.local_info['local_raw_dir'], self.cell_name, corner.name)
-            # Create cell raw dir if it does not exist
-            mkdir(to_path(self.local_info['local_raw_dir'], self.cell_name))
-            popen_cmd = [
-                "spectre", f"{local_netlist_path}",
-                "-raw", f"{local_raw_dir}"
-                ]
+            simulation_raw_dir = to_path(self.project_root_dir, f"{self.cell_name}_simulation_output", corner.name )
+            popen_cmd = f"source {self.local_info['spectre_setup_script']} ; " + \
+                f"spectre {local_netlist_path} " + \
+                f"-raw {simulation_raw_dir} "
             for cmd in self.command_options:
-                popen_cmd.append(cmd)
+                popen_cmd += f"{cmd} "
 
             # Run sim
-            display('\t', f'Simulating: {corner}')
-            log_file = f"{self.local_info['local_root_dir']}/{self.local_info['local_log_dir']}/spectre_sim.log"
+            self.logger.info(f'Simulating: {corner.name}')
+            log_file =f"{self.project_root_dir}/{self.cell_name}_logs/spectre_sim.log"
             with open(log_file, 'wb') as f:
-                process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE)
+                process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, shell=True)
                 for line in iter(process.stdout.readline, b''):
                     f.write(line)
                     line_s = line.decode('ascii')
                     # Only write time info to console
-                    progress_line = re.search('\(\d* %\)', line_s)
+                    progress_line = re.search('\(.* %\)', line_s)
                     if progress_line:
-                        progress = progress_line.group(0).strip('(').strip(')')
-                        print(f'Progress: {progress} \r', end="", flush=True)
+                        progress = line_s.split(')')[0].split('(')[1]
+                        analysis = line_s.split(':')[0].strip()
+                        if not analysis in ['ac', 'tran', 'noise', 'stb', 'dc']:
+                            continue
+                        print(f'{analysis}: {progress} \r', end="", flush=True)
+                print('')
                 status_list = line_s.split(' ')
                 err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
                 errors = int(status_list[err_idx])
                 if errors:
-                    fatal(f'Errors occurred during spectre simulation. See {log_file} for details')
+                    self.logger.error(f'Errors occurred during spectre simulation. See {log_file} for details')
+                    quit()
 
-        display(info, "SPECTRE SIMULATION COMPLETE")
-        display('\t', f"Raw data directory: {self.local_info['local_raw_dir']}")
+        self.logger.info("SPECTRE SIMULATION COMPLETE")
+        self.logger.info(f"Raw data directory: {simulation_raw_dir}")
         return new_corner_runs
-
-    def run(self, cache=True, as_daemon=False, from_remote=False):
-        """
-        Parameters:
-            cache: bool
-                If True, the simulation will not run if an identical netlist does already exist
-            as_daemon: bool
-                If True, use python-daemon to daemonize the simulation
-            from_remote: bool
-                Set to True if the simulation is executed from remote server, i.e. do not copy netlist
-        """
-        # Run simulation
-        if as_daemon:
-            daemon_dir = f"{self.local_info['local_root_dir']}/{self.local_info['local_daemon_dir']}/{self.cell_name}"
-            logf = f'{daemon_dir}/spectre_sim.log'
-            pidf = f'{daemon_dir}/spectre_sim.pid'
-            if os.path.exists(pidf):
-                fatal('Cannot start simulation because a simulation with the same cell name is already running')
-            display(info, 'DAEMONIZING SIMULATION')
-            display('\t', f'Daemon directory: {daemon_dir}')
-            mkdir(daemon_dir)
-            with daemon.DaemonContext(working_directory=f'{daemon_dir}',umask=0o002,pidfile=pidfile.TimeoutPIDLockFile(pidf),) as context:
-                self.run_remote(cache=cache, daemon_logf=logf)
-        elif not self.at_remote:
-            return self.run_remote(cache=cache)
-        else:
-            return self.run_locally(cache=cache)
-
-

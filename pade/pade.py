@@ -31,5 +31,16 @@ def setup(root, name):
     mkdir(f'{path_base}_simulation_output')
     mkdir(f'{path_base}_logs')
 
-    touch(f'{path_base}_tb.py')
-    touch(f'{path_base}.py')
+    # Write script template
+    with open("/home/fredrief/projects/pade/templates/main.txt", 'r') as fin:
+        with open(f'{path_base}.py', 'w') as fout:
+            for line in fin.readlines():
+                line = line.replace('navn', name)
+                fout.write(line)
+
+    # Write testbench template
+    with open("/home/fredrief/projects/pade/templates/tb.txt", 'r') as fin:
+        with open(f'{path_base}_tb.py', 'w') as fout:
+            for line in fin.readlines():
+                line = line.replace('navn', name)
+                fout.write(line)

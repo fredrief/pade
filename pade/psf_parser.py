@@ -1,4 +1,4 @@
-from pade import ureg, info, display, warn, error, fatal
+from pade import ureg
 from pade.signal import Signal
 from pade.ssh_utils import SSH_Utils
 from pade.utils import file_exist
@@ -15,15 +15,18 @@ class PSFParser(object):
     """
     Helper class for parsing psfascii files
     """
-    def __init__(self, cell_name, simulations, mcoptions=None, at_remote=False, **kwargs):
+    def __init__(self, logger, cell_name, simulations, mcoptions=None, **kwargs):
         """
         Parameters:
+            logger: Logger
+                Logger object
             cell_name: str
                 Name of testbench
             simulations: [str]
                 List of simulation/corner runs to parse. The names in this list is assumed to be the names of
-                the raw data directories, both local and remote.
+                the raw data directories.
         """
+        self.logger = logger
         # Parse config file
         config_file = kwargs['config_file'] if 'config_file' in kwargs else 'config/user_config.yaml'
         with open(config_file, 'r') as f:
@@ -44,7 +47,8 @@ class PSFParser(object):
             firstrun = mcoptions['firstrun'] if 'firstrun' in mcoptions else 1
             simulations = simulations.split(' ') if isinstance(simulations, str) else simulations
             if len(simulations) > 1:
-                fatal('Can only run one corner in montecarlo mode')
+                self.logger.error('Can only run one corner in montecarlo mode')
+                quit()
             corner = simulations[0]
             self.mccorner = corner
             for run in range(firstrun, firstrun + numruns):
@@ -55,66 +59,23 @@ class PSFParser(object):
         # Dictionary for holding signals
         # self.signals = {'simulation:analysis:name': Signal()}
         self.signals = {}
-        # Remote stuff
-        self.at_remote = at_remote
-        if not at_remote:
-            self.remote_info = config['remote_info']
-            ssh = SSH_Utils(self.remote_info['server_address'])
-            self.ssh = ssh
-            self.remote_psf_dir = f"{self.remote_info['remote_raw_dir']}/{self.cell_name}_raw"
-
-    def fetch_raw_data(self, new_runs=[], fetch_all=False):
-        """
-        Fetch raw data
-        Parameters:
-            new_runs: [str]
-                List of simulation/corner runs that has changed since last simulation. In other words,
-                only simulations in this list will be fetched and re-parsed. Other simulations will not be fetched,
-                given that the raw data directory exist locally.
-            fetch_all: bool
-                Override new_runs, and fetch all simulations/corners
-
-        """
-        if self.mcmode:
-            simulations_to_fetch = [self.mccorner]
-        else:
-            simulations_to_fetch = self.simulations
-        for simulation in simulations_to_fetch:
-            local_path =self.local_path
-            simulation_raw_dir = to_path(local_path, simulation)
-            if not simulation in new_runs and file_exist(simulation_raw_dir) and not fetch_all:
-                display(info, f'Found cached raw data directory: {simulation_raw_dir}')
-                continue
-            remote_path = f"{to_path(self.remote_psf_dir, f'{simulation}')}"
-            display(info, 'FETCHING RAW SIMULATION DATA')
-            display('\t', f'From: {remote_path}')
-            display('\t', f'To:   {simulation_raw_dir}')
-            # Create path if it does not exist
-            mkdir(local_path)
-            # Remove old analysis files from folder if exist
-            rm(ls(simulation_raw_dir))
-            # Fetch all analysis of raw directory
-            self.ssh.cp_from(remote_path, local_path)
 
     def parse(self, mcrun=None):
         """
         Parse psf file into traces
 
         Parameters:
+            logger: Logger
+                Logger object
             mcrun: int
                 If running a montecarlo analysis, specify the run number. This will add to the parsed signal output
         """
-        # Fetch psf raw dir if it does not exist
-        local_raw_dir = self.local_path
-        if not file_exist(self.local_path):
-            self.fetch_raw_data()
-
         if not mcrun is None:
             simulations_to_parse = [self.mccorner]
         else:
             simulations_to_parse = self.simulations
         for simulation in simulations_to_parse:
-            simulation_path = to_path(local_raw_dir, simulation)
+            simulation_path = to_path(self.local_path, simulation)
             raw_files = ls(simulation_path)
             simulation = simulation_path.name
             # If MC analysis, add mcrun to simulation name
@@ -127,7 +88,7 @@ class PSFParser(object):
                 if not self.is_valid_analysis(filename):
                     continue
                 analysis_name = filename.split('.')[0]
-                display(info, f'PARSING PSF FILE: {simulation_path.name}/{filename}')
+                self.logger.info(f'PARSING PSF FILE: {simulation_path.name}/{filename}')
                 # Parsing might fail
                 try:
                     psf = PSF(file)

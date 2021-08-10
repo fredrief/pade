@@ -4,7 +4,6 @@ from pade.spectre import Spectre as Simulator
 from pade.signal import Signal
 from pade.evaluation import Evaluation
 from pade.ssh_utils import SSH_Utils
-from pade import info, display, warn, error, fatal
 import yaml
 
 class Test:
@@ -17,6 +16,8 @@ class Test:
     TODO: Support SPICE
 
     Parameters
+        logger: Logger
+            Logger object
         design: Design
             Design to simulate
         analyses: [Analysis]
@@ -29,12 +30,9 @@ class Test:
             If True, the test will be run in debug mode.
             In debug mode, the user is supposed to use another tool for debugging, and the test is terminated after
             the simulation has finished. All traces will be saved.
-        at_remote: bool (default: False)
-            If True, the test will assume to be initialize at the remote server, meaning that no ssh connection
-            is required to run the simulation.
         corners: [Corner]
             Corners to simulate
-        command_options: ['str'] (default: ['-f', 'psfascii', '++aps', '+mt'])
+        command_options: ['str'] (default: ['-f', 'psfascii', '++aps', '+mt', '-log'])
             Commands to add to the simulator command line call.
         output_selections: ['str'] (default: [''])
             Traces to save
@@ -47,14 +45,14 @@ class Test:
         mcoptions: Dictionary
             Montecarlo options. Montecarlo disabled if this is not specified
     """
-    def __init__(self, design, analyses, expressions=None, **kwargs):
+    def __init__(self, logger, design, analyses, expressions=None, **kwargs):
+        self.logger = logger
         self.design = design
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
         debug_currents = kwargs['debug_currents'] if 'debug_currents' in kwargs else False
-        self.at_remote = kwargs['at_remote'] if 'at_remote' in kwargs else False
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
         # Initialize simulator
-        command_options = kwargs['command_options'] if 'command_options' in kwargs else ['-f', 'psfascii', '++aps', '+mt']
+        command_options = kwargs['command_options'] if 'command_options' in kwargs else ['-f', 'psfascii', '++aps', '+mt', '-log']
         output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
         if self.debug:
             output_selections = ['*'] if not debug_currents else ['*', '*:currents']
@@ -63,11 +61,10 @@ class Test:
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
 
         # Init simulator
-        sim = Simulator(design, analyses,
+        sim = Simulator(logger, design, analyses,
             command_options=command_options,
             output_selections=output_selections,
             corners=self.corners,
-            at_remote=self.at_remote,
             global_nets=self.global_nets)
         for string in self.append_netlist:
             sim.append_netlist_line(string)
@@ -108,7 +105,7 @@ class Test:
 
         sim = self.simulator
         simulations = [corner.name for corner in self.corners]
-        parser = PSFParser(self.design.cell_name, simulations=simulations, at_remote=self.at_remote, mcoptions=mcoptions)
+        parser = PSFParser(self.logger, self.design.cell_name, simulations=simulations, mcoptions=mcoptions)
         fetch_all = False
         parser_mcrun = None
         for run in range(firstrun, firstrun + numruns):
@@ -120,16 +117,13 @@ class Test:
                 parser_mcrun = run
             # Run spectre simulation
             if not skip_run:
-                new_corner_runs = sim.run(cache=cache, as_daemon=as_daemon, from_remote=self.at_remote)
+                new_corner_runs = sim.run(cache=cache, as_daemon=as_daemon)
             else:
                 new_corner_runs = simulations
             # Terminate if debugging
             if self.debug:
-                display(info, 'Debug mode active: Terminating Program')
+                self.logger.info('Debug mode active: Terminating Program')
                 quit()
-            # Fetch and parse
-            if not self.at_remote:
-                parser.fetch_raw_data(new_runs=new_corner_runs, fetch_all=fetch_all)
             parser.parse(mcrun=parser_mcrun)
 
         # Store signals
@@ -152,7 +146,7 @@ class Test:
                         try:
                             parser.get_signal(signal, analysis, sim)
                         except:
-                            fatal(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {sim}')
+                            self.logger.critical(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {sim}')
         # EVALUATE
         self.evaluation = Evaluation(parser, expressions,
                             html_dir=self.html_dir, latex_dir=self.latex_dir )

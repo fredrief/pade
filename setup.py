@@ -25,6 +25,7 @@ setuptools.setup(
         'pint',
         'click',
         'pandas',
+        'pyyaml',
     ],
     entry_points={
         'console_scripts': [

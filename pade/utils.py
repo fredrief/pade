@@ -1,6 +1,10 @@
 import numpy as np
 import numpy.linalg as nla
 import os
+import sys
+import logging
+from pade import info, display, warn, error, fatal
+
 
 
 def num2string(val, asint=False, decimals=8):
@@ -57,6 +61,34 @@ def get_kwarg(dict, key):
     """ Returns dict[key] if exist else None """
     return dict[key] if key in dict else None
 
+def get_logger(logf=None, name='spectre'):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    if logf is not None:
+        handler = logging.FileHandler(logf, 'w')
+        handler.setLevel(logging.INFO)
+    else:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.INFO)
+    formatstr = '%(asctime)s - %(levelname)s\n%(message)s\n'
+    formatter = logging.Formatter(formatstr)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    return logger
+
+
+# File handling
 
 def file_exist(filename):
     return os.path.exists(filename)
+
+def cat(filename):
+    """ Get content of file """
+    with open(filename) as f:
+        lines = f.readlines()
+    return lines
+
+def writef(lines, filename):
+    """ Write lines to file filename """
+    with open(filename, "w") as f:
+        f.writelines(lines)
