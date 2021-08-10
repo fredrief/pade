@@ -208,7 +208,7 @@ class Cell:
     """
     Cell view
     """
-    def __init__(self, cell_name, instance_name, design, declare=True, parent_cell=None, netlist_filename=None, **kwargs):
+    def __init__(self, cell_name, instance_name, design, **kwargs):
         """
         Initialize cell_view
 
@@ -234,17 +234,19 @@ class Cell:
         self.parameters = {}
         # Connect cell and design/parent cell
         self.design = design
-        self.parent_cell = parent_cell
-        if parent_cell:
-            parent_cell.add_subcell(self)
+        self.parent_cell = get_kwarg(kwargs, 'parent_cell')
+        if self.parent_cell:
+            self.parent_cell.add_subcell(self)
         else:
             design.add_cells([self])
+
         self.subcells = {}
         # Generate parameters and terminals if netlist is available
+        netlist_filename = get_kwarg(kwargs, 'netlist_filename')
         if netlist_filename:
             self.extract_data_from_file(netlist_filename, design, **kwargs)
         # Initialize subckt string
-        self.declare_subckt = declare
+        self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
         # AHDL Filepath
         self.ahdl_filepath = ""
         # Include filepath

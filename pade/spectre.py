@@ -207,22 +207,22 @@ class Spectre(object):
         new_corner_runs = []
 
         for corner in self.corners:
+            netlist_filename = f'{corner.name}.txt'
+            local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
+            simulation_raw_dir = to_path(self.project_root_dir, f"{self.cell_name}_simulation_output", corner.name )
             # Check cache
             if cache:
-                prev_netlist = cat(self.local_netlist_dir)
+                prev_netlist = cat(local_netlist_path)
                 new_netlist = self._generate_netlist_string(corner)
                 if (new_netlist == prev_netlist):
                     self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
                     continue
 
             # Write netlist to file
-            netlist_filename = f'{corner.name}.txt'
-            local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
             new_corner_runs.append(corner.name)
             self.write_netlist(corner)
 
             # Spectre commands
-            simulation_raw_dir = to_path(self.project_root_dir, f"{self.cell_name}_simulation_output", corner.name )
             popen_cmd = f"source {self.local_info['spectre_setup_script']} ; " + \
                 f"spectre {local_netlist_path} " + \
                 f"-raw {simulation_raw_dir} "

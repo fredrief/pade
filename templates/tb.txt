@@ -1,6 +1,7 @@
 from pade.schematic import Design
 from pade.stdlib.analog_lib import vdc
 from techlib.techlib import nch_slvt
+from navn_components import *
 
 class navn_tb(Design):
 

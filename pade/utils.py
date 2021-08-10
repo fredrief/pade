@@ -57,11 +57,11 @@ def num2string(val, asint=False, decimals=8):
         numstring = f'{val:{width}.{precision}}' + prefix
     return numstring
 
-def get_kwarg(dict, key):
+def get_kwarg(dict, key, default=None):
     """ Returns dict[key] if exist else None """
-    return dict[key] if key in dict else None
+    return dict[key] if key in dict else default
 
-def get_logger(logf=None, name='spectre'):
+def get_logger(logf=None, name='cbadc'):
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
     if logf is not None:
@@ -85,8 +85,8 @@ def file_exist(filename):
 def cat(filename):
     """ Get content of file """
     with open(filename) as f:
-        lines = f.readlines()
-    return lines
+        content = f.read()
+    return content
 
 def writef(lines, filename):
     """ Write lines to file filename """
