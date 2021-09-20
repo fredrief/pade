@@ -73,8 +73,6 @@ class tran(Analysis):
     def __init__(self, name='tran', parameters={}):
         default_params = {
             'cmin': 0,
-            'write': '"spectre.ic"',
-            'writefinal': '"spectre.fc"',
             'method': 'gear2only',
             'annotate': 'status',
             'maxiters': 5,

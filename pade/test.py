@@ -1,9 +1,11 @@
+from typing import List
 from pade.psf_parser import PSFParser
 from pade.analysis import tran, dc, noise, ac, Typical
 from pade.spectre import Spectre as Simulator
 from pade.signal import Signal
-from pade.evaluation import Evaluation
+from pade.evaluation import Evaluation, Expression
 from pade.ssh_utils import SSH_Utils
+from pade.utils import get_kwarg
 import yaml
 
 class Test:
@@ -16,6 +18,8 @@ class Test:
     TODO: Support SPICE
 
     Parameters
+        project_root_dir: Path
+            Project root
         logger: Logger
             Logger object
         design: Design
@@ -45,7 +49,8 @@ class Test:
         mcoptions: Dictionary
             Montecarlo options. Montecarlo disabled if this is not specified
     """
-    def __init__(self, logger, design, analyses, expressions=None, **kwargs):
+    def __init__(self, project_root_dir, logger, design, analyses, expressions=None, **kwargs):
+        self.project_root_dir = project_root_dir
         self.logger = logger
         self.design = design
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
@@ -56,12 +61,16 @@ class Test:
         output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
         if self.debug:
             output_selections = ['*'] if not debug_currents else ['*', '*:currents']
+        self.expressions = expressions
+        # Add all signal names from expressions
+        output_selections = self.get_output_selections(output_selections, expressions)
         self.corners = kwargs['corners'] if 'corners' in kwargs else [Typical()]
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
+        self.sim_name = get_kwarg(kwargs, 'sim_name', None)
 
         # Init simulator
-        sim = Simulator(logger, design, analyses,
+        sim = Simulator(project_root_dir, logger, design, analyses,
             command_options=command_options,
             output_selections=output_selections,
             corners=self.corners,
@@ -71,10 +80,8 @@ class Test:
         self.simulator = sim
 
         # Parse config file
-        results_dir = f"{sim.project_root_dir}/{design.cell_name}_results"
-
+        results_dir = f"{project_root_dir}/{design.cell_name}_results"
         # Evaluation
-        self.expressions = expressions
         self.html_dir = kwargs['html_dir'] if 'html_dir' in kwargs else results_dir
         self.latex_dir = kwargs['latex_dir'] if 'latex_dir' in kwargs else results_dir
 
@@ -105,8 +112,7 @@ class Test:
 
         sim = self.simulator
         simulations = [corner.name for corner in self.corners]
-        parser = PSFParser(self.logger, self.design.cell_name, simulations=simulations, mcoptions=mcoptions)
-        fetch_all = False
+        parser = PSFParser(self.project_root_dir, self.logger, self.design.cell_name, simulations=simulations, mcoptions=mcoptions)
         parser_mcrun = None
         for run in range(firstrun, firstrun + numruns):
             # Increment mc run if mcoptions is set
@@ -160,3 +166,15 @@ class Test:
 
     def to_latex(self):
         self.evaluation.to_latex()
+
+    def get_output_selections(self, outputs: List, expressions: Expression):
+        """
+        Append all signal names of expressions to output selections
+        """
+        output_set = set(outputs)
+        if expressions is not None:
+            for e in expressions:
+                signal_names = e.signal_names
+                for name in signal_names:
+                    output_set.add(name)
+        return list(output_set)

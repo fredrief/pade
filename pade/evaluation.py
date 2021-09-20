@@ -180,18 +180,26 @@ class Evaluation:
             summary_dict['Parameter'].append(e.name)
             # Result values
             res_val_arr = res.loc[e.name].apply(np.asarray).to_numpy()
-            # Result passed
-            res_stat_arr = res.loc[e.name].apply(lambda s: s.get_status()).to_numpy()
-            # Unit
-            unit_arr = res.loc[e.name].apply(lambda s: s.get_unit())
-            unit = e.unit if e.unit is not None else unit_arr[0]
+            # Result passed (if results are Signal objects)
+            try:
+                res_stat_arr = res.loc[e.name].apply(lambda s: s.get_status()).to_numpy()
+                # Unit
+                unit_arr = res.loc[e.name].apply(lambda s: s.get_unit())
+                unit = e.unit if e.unit is not None else unit_arr[0]
+            except:
+                unit = None
             for name, func in statistics.items():
                 if not name=='Yield':
                     eval_res = Signal(func(res_val_arr), unit, name=e.name, analysis=e.analysis_name)
                 else:
-                    # Convert None to np.nan to avoid yield function from crashing
-                    res_stat_arr = [np.nan if res_stat_arr[i] is None else res_stat_arr[i] for i in range(len(res_stat_arr))]
-                    eval_res = Signal(func(res_stat_arr), '', name=e.name, analysis=e.analysis_name)
+                    # This will only work if results are Signal objects
+                    try:
+                        # Convert None to np.nan to avoid yield function from crashing
+                        res_stat_arr = [np.nan if res_stat_arr[i] is None else res_stat_arr[i] for i in range(len(res_stat_arr))]
+                        eval_res = Signal(func(res_stat_arr), '', name=e.name, analysis=e.analysis_name)
+                    except:
+                        pass
+
                 summary_dict[name].append(eval_res)
         self.summary = pd.DataFrame(summary_dict)
 

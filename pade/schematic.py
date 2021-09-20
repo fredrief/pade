@@ -253,6 +253,9 @@ class Cell:
         self.include_filepath = ""
 
 
+    # def add(self, contructor, cell_name **kwargs):
+    #     """ Instantiate and add subcell to self """
+
     def extract_data_from_file(self, file, design, **kwargs):
         """
         Read a spectre netlist and define parameters and terminals accordingly

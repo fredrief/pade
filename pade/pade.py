@@ -1,6 +1,6 @@
 import click
 import os
-from shlib.shlib import rm, to_path, cp, mkdir, touch, mv
+from shlib.shlib import ls, lsd, lsf, rm, to_path, cp, mkdir, touch, mv
 
 @click.group()
 def cli():
@@ -30,6 +30,7 @@ def setup(root, name):
     mkdir(f'{path_base}_netlists')
     mkdir(f'{path_base}_simulation_output')
     mkdir(f'{path_base}_logs')
+    mkdir(f'{path_base}_notebooks')
 
     # Write script template
     with open("/home/fredrief/projects/pade/templates/main.txt", 'r') as fin:
@@ -55,46 +56,68 @@ def setup(root, name):
 
 @cli.command()
 @click.argument('root', type=click.Path(exists=True))
-@click.argument('oldname', type=click.Path(exists=True))
+@click.argument('oldname', type=str)
 @click.argument('newname', type=str)
 def rename(root, oldname, newname):
     """ Rename project in root directory 'root' with name 'oldname' to 'newname' """
     old_project_path = to_path(root, oldname)
-    old_path_base = f'{old_project_path}/{oldname}'
     new_project_path = to_path(root, newname)
-    new_path_base = f'{new_project_path}/{newname}'
     mkdir(new_project_path)
+    # In case newname hase parent dirs, get only name
+    newname = newname.split("/")[-1]
 
     # Rename directories
-    mv(f'{old_path_base}_results', f'{new_path_base}_results')
-    mv(f'{old_path_base}_figures', f'{new_path_base}_figures')
-    mv(f'{old_path_base}_netlists', f'{new_path_base}_netlists')
-    mv(f'{old_path_base}_simulation_output', f'{new_path_base}_simulation_output')
-    mv(f'{old_path_base}_logs', f'{new_path_base}_logs')
+    dirs = lsd(old_project_path)
+    for dir in dirs:
+        newdirname = dir.name.replace(oldname, newname)
+        newpath = to_path(new_project_path, newdirname)
+        mv(dir, newpath)
 
     # Rename files
-    ## Main
-    touch(f'{new_path_base}.py')
-    touch(f'{new_path_base}_tb.py')
-    touch(f'{new_path_base}_components.py')
-    with open(f'{old_path_base}.py', 'r') as fin:
-        with open(f'{new_path_base}.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace(oldname, newname)
-                fout.write(line)
-    rm(f'{old_path_base}.py')
-    ## tb
-    with open(f'{old_path_base}_tb.py', 'r') as fin:
-        with open(f'{new_path_base}_tb.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace(oldname, newname)
-                fout.write(line)
-    rm(f'{old_path_base}_tb.py')
-    ## components
-    with open(f'{old_path_base}_components.py', 'r') as fin:
-        with open(f'{new_path_base}_components.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace(oldname, newname)
-                fout.write(line)
-    rm(f'{old_path_base}_components.py')
+    files = lsf(old_project_path)
+    for file in files:
+        newfilename = file.name.replace(oldname, newname)
+        newpath = to_path(new_project_path, newfilename)
+        touch(newpath)
+        with open(file, 'r') as fin:
+            with open(newpath, 'w') as fout:
+                for line in fin.readlines():
+                    line = line.replace(oldname, newname)
+                    fout.write(line)
+        rm(file)
     rm(old_project_path)
+
+
+@cli.command()
+@click.argument('root', type=click.Path(exists=True))
+@click.argument('oldname', type=str)
+@click.argument('newname', type=str)
+def copy(root, oldname, newname):
+    """ Copy project in root directory 'root' with name 'oldname' to 'newname' """
+    old_project_path = to_path(root, oldname)
+    new_project_path = to_path(root, newname)
+    mkdir(new_project_path)
+    # In case newname hase parent dirs, get only name
+    newname = newname.split("/")[-1]
+
+    # Rename directories and delete files within dirs
+    dirs = lsd(old_project_path)
+    for dir in dirs:
+        newdirname = dir.name.replace(oldname, newname)
+        newpath = to_path(new_project_path, newdirname)
+        cp(dir, newpath)
+        files = ls(newpath)
+        rm(files)
+
+    # Rename files
+    files = lsf(old_project_path)
+    for file in files:
+        newfilename = file.name.replace(oldname, newname)
+        newpath = to_path(new_project_path, newfilename)
+        touch(newpath)
+        with open(file, 'r') as fin:
+            with open(newpath, 'w') as fout:
+                for line in fin.readlines():
+                    line = line.replace(oldname, newname)
+                    fout.write(line)
+

@@ -4,28 +4,35 @@ from pade.utils import num2string
 class switch(Cell):
     """
     Switch
-    Terminals: 'Np', 'Nm', 'NCp'
+    Terminals: 'Np', 'Nm', 'NCp', 'NCm'
     """
     def __init__(self, instance_name, design, ropen='1T', rclosed='10.0', vt1=0.45, vt2=0.55, parent_cell=None):
         # Call super init
         super().__init__('switch', instance_name, design, library_name="analog_lib", parent_cell=parent_cell, declare=True)
         # Add terminals
-        self.add_multiple_terminals(['Np', 'Nm', 'NCp'])
-        sw_params = {
+        self.add_multiple_terminals(['Np', 'Nm', 'NCp', 'NCm'])
+        self.parameters = {
             'vt1': num2string(vt1),
             'vt2': num2string(vt2),
-            'region': 'off',
+            'ropen': num2string(ropen),
+            'rclosed': num2string(rclosed),
         }
-        ron = res('RON', design, rclosed, parent_cell=self).quick_connect(['p', 'n'], ['Np', 'x'])
-        roff = res('ROFF', design, ropen, parent_cell=self).quick_connect(['p', 'n'], ['xp', 'Nm'])
-        sw = relay('SW', design, ropen='10T', rclosed='1', parameters=sw_params, parent_cell=self).quick_connect(['N+', 'N-', 'NC+', 'NC-'], ['Np', 'xp', 'NCp', '0'])
+        sw_params = {
+            'vt1': 'vt1',
+            'vt2': 'vt2',
+            'ropen': 'ropen',
+            'rclosed': 'rclosed',
+        }
+        sw = relay('SW', design, parameters=sw_params, parent_cell=self).quick_connect(
+            ['N+', 'N-', 'NC+', 'NC-'],
+            ['Np', 'Nm', 'NCp', 'NCm'])
 
 class relay(Cell):
     """
     Relay / ideal switch
     Terminals: 'N+', 'N-', 'NC+', 'NC-'
     """
-    def __init__(self, instance_name, design, ropen='1T', rclosed='1.0', parameters={}, parent_cell=None):
+    def __init__(self, instance_name, design, ropen='1T', rclosed='1000.0', parameters={}, parent_cell=None):
         # Call super init
         super().__init__('relay', instance_name, design, library_name="analog_lib", parent_cell=parent_cell, declare=False)
         # Add terminals
@@ -33,6 +40,13 @@ class relay(Cell):
         # Add parameters
         self.set_parameter('ropen', ropen)
         self.set_parameter('rclosed', rclosed)
+        # Try to find vdd
+        try:
+            vdd = design.vdd
+            self.set_parameter('vt1', vdd/2-vdd/3)
+            self.set_parameter('vt2', vdd/2+vdd/3)
+        except:
+            pass
         for key in parameters:
             self.parameters[key] = parameters[key]
 
@@ -133,7 +147,7 @@ class vdc(Cell):
     DC Voltage source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, vdc, parent_cell=None):
+    def __init__(self, instance_name, design, vdc, parent_cell=None, **kwargs):
         # Call super init
         super().__init__('vsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
         # Add terminals
@@ -141,13 +155,15 @@ class vdc(Cell):
         self.add_terminal("n")
         # Add properties
         self.parameters = {'dc': num2string(vdc), 'type': 'dc'}
+        for key in kwargs:
+            self.parameters[key] = kwargs[key]
 
 class vsin(Cell):
     """
     DC Voltage source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, vdc, ampl, freq, parent_cell=None):
+    def __init__(self, instance_name, design, vdc, ampl, freq, parent_cell=None, **kwargs):
         # Call super init
         super().__init__('vsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
         # Add terminals
@@ -155,6 +171,8 @@ class vsin(Cell):
         self.add_terminal("n")
         # Add properties
         self.parameters = {'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
+        for key in kwargs:
+            self.parameters[key] = kwargs[key]
 
 class vccs(Cell):
     """
@@ -226,3 +244,4 @@ class bsource(Cell):
         self.parameters[f'{output}'] = f'{expression}'
         for key in parameters:
             self.parameters[key] = parameters[key]
+

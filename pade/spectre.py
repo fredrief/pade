@@ -1,7 +1,7 @@
 from pade.analysis import Analysis, Corner, Typical
 from pade.ssh_utils import SSH_Utils
 from shlib import mkdir, ls, to_path, rm
-from pade.utils import num2string, cat, writef
+from pade.utils import get_kwarg, num2string, cat, writef
 import re
 import numpy as np
 import logging
@@ -14,9 +14,11 @@ class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, logger, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
+    def __init__(self, project_root_dir, logger, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
         """
         Parameters:
+            project_root_dir: Path
+                Project root
             logger: Logger
                 Logger object
             design: Design
@@ -43,12 +45,12 @@ class Spectre(object):
 
         """
         # Parse config file
-        config_file = kwargs['config_file'] if 'config_file' in kwargs else 'config/user_config.yaml'
+        config_file = get_kwarg(kwargs, 'config_file','config/user_config.yaml')
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         self.config = config
         self.local_info = config['local_info']
-        spectre_setup = kwargs['spectre_setup'] if 'spectre_setup' in kwargs else 'config/spectre_setup.yaml'
+        spectre_setup = get_kwarg(kwargs, 'spectre_setup','config/spectre_setup.yaml')
         with open(spectre_setup, 'r') as f:
             self.spectre_options = yaml.safe_load(f)
 
@@ -57,7 +59,7 @@ class Spectre(object):
         self.output_selections = output_selections
         # paths and names
         self.cell_name = design.cell_name # Netlist/design cell name
-        self.project_root_dir = f"{self.local_info['local_project_root_dir']}/{self.cell_name}"
+        self.project_root_dir = project_root_dir
         self.local_netlist_dir = f"{self.project_root_dir}/{self.cell_name}_netlists"
 
         # Initialization
@@ -68,9 +70,9 @@ class Spectre(object):
         self.netlist_string = None
         self.lines_to_append_netlist = []
 
-        self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
+        self.global_nets = get_kwarg(kwargs, 'global_nets', '0')
         # Corners:
-        self.corners = kwargs['corners'] if 'corners' in kwargs else [Typical()]
+        self.corners = get_kwarg(kwargs, 'corners', [Typical()])
 
     def _get_analysis_string(self):
         """
@@ -232,6 +234,7 @@ class Spectre(object):
             # Run sim
             self.logger.info(f'Simulating: {corner.name}')
             log_file =f"{self.project_root_dir}/{self.cell_name}_logs/spectre_sim.log"
+            warnings = ""
             with open(log_file, 'wb') as f:
                 process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, shell=True)
                 for line in iter(process.stdout.readline, b''):
@@ -242,9 +245,11 @@ class Spectre(object):
                     if progress_line:
                         progress = line_s.split(')')[0].split('(')[1]
                         analysis = line_s.split(':')[0].strip()
-                        if not analysis in ['ac', 'tran', 'noise', 'stb', 'dc']:
+                        if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
                             continue
                         print(f'{analysis}: {progress} \r', end="", flush=True)
+                    if 'WARNING' in line_s:
+                        warnings += line_s + "\n"
                 print('')
                 status_list = line_s.split(' ')
                 err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
@@ -252,6 +257,8 @@ class Spectre(object):
                 if errors:
                     self.logger.error(f'Errors occurred during spectre simulation. See {log_file} for details')
                     quit()
+            if len(warnings) > 0:
+                self.logger.warning(warnings)
 
         self.logger.info("SPECTRE SIMULATION COMPLETE")
         self.logger.info(f"Raw data directory: {simulation_raw_dir}")

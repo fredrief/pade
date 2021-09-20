@@ -4,6 +4,7 @@ import os
 import sys
 import logging
 from pade import info, display, warn, error, fatal
+from shlib.shlib import to_path
 
 
 
@@ -84,11 +85,19 @@ def file_exist(filename):
 
 def cat(filename):
     """ Get content of file """
-    with open(filename) as f:
-        content = f.read()
-    return content
+
+    try:
+        with open(filename) as f:
+            content = f.read()
+        return content
+    except FileNotFoundError:
+        return None
 
 def writef(lines, filename):
     """ Write lines to file filename """
     with open(filename, "w") as f:
         f.writelines(lines)
+
+
+# Print results
+html_formatter = lambda s: '{:.4f~P}'.format(s)

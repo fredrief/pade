@@ -15,9 +15,11 @@ class PSFParser(object):
     """
     Helper class for parsing psfascii files
     """
-    def __init__(self, logger, cell_name, simulations, mcoptions=None, **kwargs):
+    def __init__(self, project_root_dir, logger, cell_name, simulations, mcoptions=None, **kwargs):
         """
         Parameters:
+            project_root_dir: Path
+                Project root
             logger: Logger
                 Logger object
             cell_name: str
@@ -34,8 +36,8 @@ class PSFParser(object):
         self.config = config
         self.local_info = config['local_info']
         self.cell_name = cell_name
-        self.local_path = f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_simulation_output"
-        self.local_netlist_dir = f"{self.local_info['local_project_root_dir']}/{self.cell_name}/{self.cell_name}_netlists"
+        self.local_path = f"{project_root_dir}/{self.cell_name}_simulation_output"
+        self.local_netlist_dir = f"{project_root_dir}/{self.cell_name}/{self.cell_name}_netlists"
 
         # If MC analysis, add mcrun to simulation name
         self.simulations = []
@@ -126,6 +128,12 @@ class PSFParser(object):
             t = filename.split('.')[-1]
             res = t in valid_types
         return res
+
+    def get_signals_from_same_sim(self, name_list, analysis, simulation):
+        signals = []
+        for name in name_list:
+            signals.append(self.get_signal(name, analysis, simulation))
+        return signals
 
 
     def get_signal(self, name, analysis, simulation):
