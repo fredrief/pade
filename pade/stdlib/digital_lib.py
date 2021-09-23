@@ -29,10 +29,14 @@ class Nor(Cell):
     def __init__(self, instance_name, design, parent_cell=None, **kwargs):
         super().__init__("Nor", instance_name, design, parent_cell=parent_cell, declare=True, **kwargs)
         self.add_multiple_terminals(['vin1', 'vin2', 'vout', 'vdd', 'gnd'])
-        mp1 = pch_slvt('MP1', design, parent_cell=self, wg=150e-9, lg=20e-9, mfac=1).quick_connect(['b', 'd', 'g', 's'], ['vdd', 'a', 'vin1', 'vdd'])
-        mp2 = pch_slvt('MP2', design, parent_cell=self, wg=150e-9, lg=20e-9, mfac=1).quick_connect(['b', 'd', 'g', 's'], ['vdd', 'vout', 'vin2', 'a'])
-        mn1 = nch_slvt('MN1', design, parent_cell=self, wg=150e-9, lg=20e-9, mfac=1).quick_connect(['b', 'd', 'g', 's'], ['gnd', 'vout', 'vin1', 'gnd'])
-        mn2 = nch_slvt('MN2', design, parent_cell=self, wg=150e-9, lg=20e-9, mfac=1).quick_connect(['b', 'd', 'g', 's'], ['gnd', 'vout', 'vin2', 'gnd'])
+        # Add parameters
+        self.set_parameter('wg', get_kwarg(kwargs, 'wg', 150e-9))
+        self.set_parameter('lg', get_kwarg(kwargs, 'lg', 20e-9))
+        self.set_parameter('mfac', get_kwarg(kwargs, 'mfac', 1))
+        mp1 = pch_slvt('MP1', design, parent_cell=self, wg='wg', lg='lg', mfac='mfac').quick_connect(['b', 'd', 'g', 's'], ['vdd', 'a', 'vin1', 'vdd'])
+        mp2 = pch_slvt('MP2', design, parent_cell=self, wg='wg', lg='lg', mfac='mfac').quick_connect(['b', 'd', 'g', 's'], ['vdd', 'vout', 'vin2', 'a'])
+        mn1 = nch_slvt('MN1', design, parent_cell=self, wg='wg', lg='lg', mfac='mfac').quick_connect(['b', 'd', 'g', 's'], ['gnd', 'vout', 'vin1', 'gnd'])
+        mn2 = nch_slvt('MN2', design, parent_cell=self, wg='wg', lg='lg', mfac='mfac').quick_connect(['b', 'd', 'g', 's'], ['gnd', 'vout', 'vin2', 'gnd'])
 
 class Or(Cell):
     """
