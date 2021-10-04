@@ -4,7 +4,7 @@ import os
 import sys
 import logging
 from pade import info, display, warn, error, fatal
-from shlib.shlib import to_path
+from shlib.shlib import to_path, mkdir
 
 
 

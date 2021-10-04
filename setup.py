@@ -19,7 +19,6 @@ setuptools.setup(
         'matplotlib',
         'numpy',
         'psf-utils',
-        'python-daemon',
         'scipy',
         'shlib',
         'pint',

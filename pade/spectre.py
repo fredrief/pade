@@ -5,8 +5,6 @@ from pade.utils import get_kwarg, num2string, cat, writef
 import re
 import numpy as np
 import logging
-import daemon
-from daemon import pidfile
 import yaml
 import subprocess
 
@@ -14,11 +12,12 @@ class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, project_root_dir, logger, design, analysis, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
+    def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analysis, tq, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
         """
         Parameters:
-            project_root_dir: Path
-                Project root
+            netlist_dir: str
+            output_dir: str
+            log_dir: str
             logger: Logger
                 Logger object
             design: Design
@@ -59,8 +58,9 @@ class Spectre(object):
         self.output_selections = output_selections
         # paths and names
         self.cell_name = design.cell_name # Netlist/design cell name
-        self.project_root_dir = project_root_dir
-        self.local_netlist_dir = f"{self.project_root_dir}/{self.cell_name}_netlists"
+        self.local_netlist_dir = netlist_dir
+        self.output_dir = output_dir
+        self.log_dir = log_dir
 
         # Initialization
         self.logger = logger
@@ -73,6 +73,8 @@ class Spectre(object):
         self.global_nets = get_kwarg(kwargs, 'global_nets', '0')
         # Corners:
         self.corners = get_kwarg(kwargs, 'corners', [Typical()])
+        # Progress bar
+        self.tq=tq
 
     def _get_analysis_string(self):
         """
@@ -196,7 +198,7 @@ class Spectre(object):
         writef(self._generate_netlist_string(corner), local_netlist_path)
 
 
-    def run(self, cache=True, as_daemon=False):
+    def run(self, cache=True):
         """ Run simulation """
 
         # Set first MC run
@@ -211,7 +213,7 @@ class Spectre(object):
         for corner in self.corners:
             netlist_filename = f'{corner.name}.txt'
             local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
-            simulation_raw_dir = to_path(self.project_root_dir, f"{self.cell_name}_simulation_output", corner.name )
+            simulation_raw_dir = to_path(self.output_dir, corner.name )
             # Check cache
             if cache:
                 prev_netlist = cat(local_netlist_path)
@@ -233,24 +235,27 @@ class Spectre(object):
 
             # Run sim
             self.logger.info(f'Simulating: {corner.name}')
-            log_file =f"{self.project_root_dir}/{self.cell_name}_logs/spectre_sim.log"
+            log_file =to_path(self.log_dir, 'spectre_sim.log')
             warnings = ""
             with open(log_file, 'wb') as f:
-                process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, shell=True)
+                process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                p0 = 0
                 for line in iter(process.stdout.readline, b''):
                     f.write(line)
                     line_s = line.decode('ascii')
                     # Only write time info to console
                     progress_line = re.search('\(.* %\)', line_s)
                     if progress_line:
-                        progress = line_s.split(')')[0].split('(')[1]
+                        progress = float(line_s.split(' %')[0].split('(')[1])
                         analysis = line_s.split(':')[0].strip()
                         if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
                             continue
-                        print(f'{analysis}: {progress} \r', end="", flush=True)
+                        self.tq.update(progress-p0)
+                        p0 = progress
                     if 'WARNING' in line_s:
                         warnings += line_s + "\n"
-                print('')
+                        # Close tq
+                self.tq.close()
                 status_list = line_s.split(' ')
                 err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
                 errors = int(status_list[err_idx])

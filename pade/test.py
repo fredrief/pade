@@ -5,7 +5,9 @@ from pade.spectre import Spectre as Simulator
 from pade.signal import Signal
 from pade.evaluation import Evaluation, Expression
 from pade.ssh_utils import SSH_Utils
-from pade.utils import get_kwarg
+from pade.utils import get_kwarg, get_logger
+from shlib.shlib import lsf, rm, to_path, mkdir
+from tqdm.std import tqdm
 import yaml
 
 class Test:
@@ -20,8 +22,6 @@ class Test:
     Parameters
         project_root_dir: Path
             Project root
-        logger: Logger
-            Logger object
         design: Design
             Design to simulate
         analyses: [Analysis]
@@ -30,6 +30,8 @@ class Test:
             List of expressions to evaluate. If None, traces from parser is returned
 
     Keyword arguments:
+        logf: str
+            Logfile. None -> stdout
         debug: bool (default: False)
             If True, the test will be run in debug mode.
             In debug mode, the user is supposed to use another tool for debugging, and the test is terminated after
@@ -48,10 +50,17 @@ class Test:
             Path to directory where html tables are saved
         mcoptions: Dictionary
             Montecarlo options. Montecarlo disabled if this is not specified
+        run_index: int
+            Index used to handle multiprocessing
     """
-    def __init__(self, project_root_dir, logger, design, analyses, expressions=None, **kwargs):
+    def __init__(self, project_root_dir, design, analyses, expressions=None, **kwargs):
+        # Sim name and index
+        self.run_index = get_kwarg(kwargs, 'run_index', 0)
+        self.sim_name = get_kwarg(kwargs, 'sim_name', None)
+        if self.sim_name is None:
+            self.sim_name = str(self.run_index)
+
         self.project_root_dir = project_root_dir
-        self.logger = logger
         self.design = design
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
         debug_currents = kwargs['debug_currents'] if 'debug_currents' in kwargs else False
@@ -67,14 +76,36 @@ class Test:
         self.corners = kwargs['corners'] if 'corners' in kwargs else [Typical()]
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
-        self.sim_name = get_kwarg(kwargs, 'sim_name', None)
+
+        # keep all paths and directories at the same place
+        dir_suffix = f'_{self.sim_name}'
+        self.log_dir = to_path(self.project_root_dir,f"{self.design.cell_name}_logs" + dir_suffix)
+        self.netlist_dir = to_path(self.project_root_dir,f"{self.design.cell_name}_netlists" + dir_suffix)
+        self.res_dir = to_path(self.project_root_dir,f"{self.design.cell_name}_results" + dir_suffix)
+        self.output_dir = to_path(self.project_root_dir,f"{self.design.cell_name}_simulation_output" + dir_suffix)
+
+        # Make all directories at init
+        mkdir(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir)
+
+        # Logger
+        logf = get_kwarg(kwargs, 'logf', None)
+        self.logger = get_logger(logf)
+        # Prgoress bar
+        self.tq = tqdm(total=100, position=self.run_index, desc=f'{self.sim_name}', leave=False)
 
         # Init simulator
-        sim = Simulator(project_root_dir, logger, design, analyses,
+        sim = Simulator(
+            self.netlist_dir,
+            self.output_dir,
+            self.log_dir,
+            self.logger,
+            design,
+            analyses,
+            self.tq,
             command_options=command_options,
             output_selections=output_selections,
             corners=self.corners,
-            global_nets=self.global_nets)
+            global_nets=self.global_nets,)
         for string in self.append_netlist:
             sim.append_netlist_line(string)
         self.simulator = sim
@@ -90,15 +121,12 @@ class Test:
 
 
 
-    def run(self, cache=True, as_daemon=False, skip_run=False):
+    def run(self, cache=True, skip_run=False):
         """
         Run simulation
         Parameters:
             cache: bool
                 If True, the simulation will not run if an identical netlist does already exist
-            as_daemon: bool
-                If True, use python-daemon to daemonize the simulation
-                TODO: Move the daemonizing to test-object level. Will allow for running corners and MC simultaneously.
         """
         numruns = 1
         firstrun = 1
@@ -123,7 +151,7 @@ class Test:
                 parser_mcrun = run
             # Run spectre simulation
             if not skip_run:
-                new_corner_runs = sim.run(cache=cache, as_daemon=as_daemon)
+                new_corner_runs = sim.run(cache=cache)
             else:
                 new_corner_runs = simulations
             # Terminate if debugging
@@ -170,11 +198,23 @@ class Test:
     def get_output_selections(self, outputs: List, expressions: Expression):
         """
         Append all signal names of expressions to output selections
+        Return sorted list for convenience
         """
         output_set = set(outputs)
         if expressions is not None:
             for e in expressions:
                 signal_names = e.signal_names
                 for name in signal_names:
-                    output_set.add(name)
-        return list(output_set)
+                    if not name in output_set:
+                        output_set.add(name)
+        l = list(output_set)
+        l.sort()
+        return l
+
+
+    def clean_up(self):
+        """
+        Clean up all directories
+        """
+        # Logs
+        rm(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir)
