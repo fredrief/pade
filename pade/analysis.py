@@ -5,11 +5,11 @@ class Corner:
     """
     For corner setup
     """
-    def __init__(self, model_file, temp=27, **kwargs):
+    def __init__(self, model_file, temp=27, name=None):
         self.model_file = model_file
         self.temp = temp
         # Use the model_file as default corner name
-        self.name = kwargs['name'] if 'name' in kwargs else model_file
+        self.name = name if name else model_file
 
     def __str__(self) -> str:
         return self.name

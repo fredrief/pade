@@ -25,6 +25,7 @@ setuptools.setup(
         'click',
         'pandas',
         'pyyaml',
+        'mpire'
     ],
     entry_points={
         'console_scripts': [

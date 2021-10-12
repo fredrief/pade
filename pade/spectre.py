@@ -7,42 +7,14 @@ import numpy as np
 import logging
 import yaml
 import subprocess
+from tqdm import tqdm
 
 class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analysis, tq, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], at_remote=False, **kwargs):
-        """
-        Parameters:
-            netlist_dir: str
-            output_dir: str
-            log_dir: str
-            logger: Logger
-                Logger object
-            design: Design
-                Design/testbench to simulate
-            analysis: [Analysis]
-                List of analysis to simulate
-            output_selections: [str]
-                List of traces to save
-            command_options: [str]
-                options to append to the spectre command line call
-            at_remote: bool
-                Specify if the Spectre object is instantiated at the remote server or not.
+    def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analyses, sim_name, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], **kwargs):
 
-        Keyword arguments:
-            config_file:
-                Path for alternative configuration file. (default pade/config/user_config.yaml)
-            spectre_setup:
-               Path for alternative spectre setup file. (default pade/config/spectre_setup.yaml)
-            global_nets:
-                Global nets used in spectre netlist (default: 0)
-            corners: [Corner]
-                List of Corners to simulate. Default: Typical
-                The corner name will also give the name to the resulting raw data directories
-
-        """
         # Parse config file
         config_file = get_kwarg(kwargs, 'config_file','config/user_config.yaml')
         with open(config_file, 'r') as f:
@@ -57,55 +29,51 @@ class Spectre(object):
         self.command_options = command_options
         self.output_selections = output_selections
         # paths and names
-        self.cell_name = design.cell_name # Netlist/design cell name
-        self.local_netlist_dir = netlist_dir
+        self.design = design # Netlist/design cell name
+        self.netlist_dir = netlist_dir
         self.output_dir = output_dir
         self.log_dir = log_dir
 
         # Initialization
         self.logger = logger
-        self.analysis = analysis # []
+        self.analyses = analyses # []
         self.design = design
         self.montecarlo_settings = None
         self.netlist_string = None
         self.lines_to_append_netlist = []
 
         self.global_nets = get_kwarg(kwargs, 'global_nets', '0')
-        # Corners:
-        self.corners = get_kwarg(kwargs, 'corners', [Typical()])
-        # Progress bar
-        self.tq=tq
+        # corner:
+        self.corner = get_kwarg(kwargs, 'corner', Typical())
+        self.sim_name=sim_name
+        self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', 0)
 
-    def _get_analysis_string(self):
+    def _get_analyses_string(self):
         """
         Return the analyses' contribution to the netlist
         """
-        # Analysis
+        # analyses
         astr = ""
         astr += "\n"
         if self.montecarlo_settings:
-            # If Montecarlo, only one corner is allowed
-            if len(self.corners) > 1:
-                self.logger.error('I don\'t want to run montecarlo with multiple corners, too much output will be generated. Please select only one corner in combination with montecarlo analysis.')
-                quit()
-            # MC analysis
+            # MC analyses
             astr += 'montecarlo montecarlo numruns=1 '
             for param, value in self.montecarlo_settings.items():
                 # An attempt to set a higher number of runs will be ignored
                 if not param == 'numruns':
                     astr += f'{param}={num2string(value)} '
             astr += " { \n"
-            for a in self.analysis:
+            for a in self.analyses:
                 # Only include analyes inside mc brackets, not options and info
                 if not a.type in ['options', 'info']:
                     astr += a.get_netlist_string() + "\n"
             astr += "} \n"
-            for a in self.analysis:
+            for a in self.analyses:
                 # Append options and info statements
                 if a.type in ['options', 'info']:
                     astr += a.get_netlist_string() + "\n"
         else:
-            for a in self.analysis:
+            for a in self.analyses:
                 astr += a.get_netlist_string() + "\n"
             astr += "\n"
         return astr
@@ -121,7 +89,7 @@ class Spectre(object):
 
     def set_mc_param(self, param, value,):
         """
-        Set parameter of the mc analysis
+        Set parameter of the mc analyses
         """
         if self.montecarlo_settings:
             self.montecarlo_settings[param] = value
@@ -134,7 +102,7 @@ class Spectre(object):
         [MODELFILE] will be replaced by model file in simulation
         """
         self.netlist_string = "// Generated for: spectre\n"
-        self.netlist_string += "// Design cell name: {}\n".format(self.cell_name)
+        self.netlist_string += "// Design cell name: {}\n".format(self.design.cell_name)
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
         self.netlist_string += "include \"$SPECTRE_MODEL_PATH/design_wrapper.lib.scs\" section=[MODELFILE]\n"
@@ -143,7 +111,7 @@ class Spectre(object):
         self.netlist_string += self.design.get_netlist_string()
 
         # Analyses
-        self.netlist_string += self._get_analysis_string()
+        self.netlist_string += self._get_analyses_string()
 
         # Initial conditions
         if self.design.ic is not None:
@@ -194,77 +162,75 @@ class Spectre(object):
         Write netlist string to files
         One Netlist file per corner
         """
-        local_netlist_path = to_path(self.local_netlist_dir, corner.name + '.txt')
-        writef(self._generate_netlist_string(corner), local_netlist_path)
+        netlist_path = to_path(self.netlist_dir, corner.name + '.txt')
+        writef(self._generate_netlist_string(corner), netlist_path)
 
 
     def run(self, cache=True):
         """ Run simulation """
+        corner = self.corner
+        netlist_filename = f'{corner.name}.txt'
+        netlist_path = to_path(self.netlist_dir, netlist_filename)
+        simulation_raw_dir = self.output_dir
+        # Check cache
+        if cache:
+            prev_netlist = cat(netlist_path)
+            new_netlist = self._generate_netlist_string(corner)
+            if (new_netlist == prev_netlist):
+                self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
+                return
 
-        # Set first MC run
-        mcrun = ''
-        if self.montecarlo_settings is not None:
-            mcrun += f"({self.montecarlo_settings['firstrun']})"
+        self.logger.info('Writing netlist')
+        # Write netlist to file
+        self.write_netlist(corner)
 
-        self.logger.info("START SPECTRE SIMULATION")
-        self.logger.info(f"Corners: {self.corners}{mcrun}")
-        new_corner_runs = []
+        self.logger.info('Starting spectre simulation')
+        # Spectre commands
+        popen_cmd = f"source {self.local_info['spectre_setup_script']} ; " + \
+            f"spectre {netlist_path} " + \
+            f"-raw {simulation_raw_dir} "
+        for cmd in self.command_options:
+            popen_cmd += f"{cmd} "
 
-        for corner in self.corners:
-            netlist_filename = f'{corner.name}.txt'
-            local_netlist_path = to_path(self.local_netlist_dir, netlist_filename)
-            simulation_raw_dir = to_path(self.output_dir, corner.name )
-            # Check cache
-            if cache:
-                prev_netlist = cat(local_netlist_path)
-                new_netlist = self._generate_netlist_string(corner)
-                if (new_netlist == prev_netlist):
-                    self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
-                    continue
-
-            # Write netlist to file
-            new_corner_runs.append(corner.name)
-            self.write_netlist(corner)
-
-            # Spectre commands
-            popen_cmd = f"source {self.local_info['spectre_setup_script']} ; " + \
-                f"spectre {local_netlist_path} " + \
-                f"-raw {simulation_raw_dir} "
-            for cmd in self.command_options:
-                popen_cmd += f"{cmd} "
-
-            # Run sim
-            self.logger.info(f'Simulating: {corner.name}')
-            log_file =to_path(self.log_dir, 'spectre_sim.log')
-            warnings = ""
-            with open(log_file, 'wb') as f:
-                process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                p0 = 0
-                for line in iter(process.stdout.readline, b''):
-                    f.write(line)
-                    line_s = line.decode('ascii')
-                    # Only write time info to console
-                    progress_line = re.search('\(.* %\)', line_s)
-                    if progress_line:
-                        progress = float(line_s.split(' %')[0].split('(')[1])
-                        analysis = line_s.split(':')[0].strip()
-                        if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
-                            continue
-                        self.tq.update(progress-p0)
-                        p0 = progress
-                    if 'WARNING' in line_s:
-                        warnings += line_s + "\n"
-                        # Close tq
-                self.tq.close()
-                status_list = line_s.split(' ')
-                err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
-                errors = int(status_list[err_idx])
-                if errors:
-                    self.logger.error(f'Errors occurred during spectre simulation. See {log_file} for details')
-                    quit()
-            if len(warnings) > 0:
-                self.logger.warning(warnings)
+        # Run sim
+        self.logger.info(f'Simulating: {corner.name}')
+        log_file = to_path(self.log_dir, 'spectre_sim.log')
+        # Progress bar
+        self.tq = tqdm(total=100, desc=f'{self.sim_name}', leave=False, position=self.tqdm_pos)
+        with open(log_file, 'wb') as f:
+            process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            p0 = 0
+            for line in iter(process.stdout.readline, b''):
+                f.write(line)
+                line_s = line.decode('ascii')
+                # Only write time info to console
+                progress_line = re.search('\(.* %\)', line_s)
+                if progress_line:
+                    progress = float(line_s.split(' %')[0].split('(')[1])
+                    analyses = line_s.split(':')[0].strip()
+                    if not analyses in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
+                        continue
+                    self.tq.update(progress-p0)
+                    p0 = progress
+                    # Close tq
+            self.tq.close()
+            status_list = line_s.split(' ')
+            err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
+            errors = int(status_list[err_idx])
+            if errors:
+                raise SpectreError(log_file)
 
         self.logger.info("SPECTRE SIMULATION COMPLETE")
         self.logger.info(f"Raw data directory: {simulation_raw_dir}")
-        return new_corner_runs
+
+
+class SpectreError(Exception):
+    """
+    Exception raised when spectre has error
+    """
+    def __init__(self, log_file):
+        self.message = f'Errors occurred during spectre simulation. See {log_file} for details'
+        super().__init__(self.message)
+
+    def __str__(self):
+        return self.message

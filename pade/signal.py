@@ -44,6 +44,12 @@ def angle(sig):
     "Implementation of np.angle for Signal objects"
     return Signal(np.angle(sig.trace), sig.unit, f'/_({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
 
+@implements(np.conjugate)
+def conjugate(sig):
+    "Implementation of np.conjugate for Signal objects"
+    return Signal(np.conjugate(sig.trace), sig.unit, f'{sig.name}*', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
+
+
 
 class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
     """
@@ -210,3 +216,12 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             except:
                 pass
         return q.to_compact()
+
+    def conjugate(self):
+        return np.conjugate(self)
+
+    def sqrt(self):
+        return np.sqrt(self)
+
+    def abs(self):
+        return np.abs(self)

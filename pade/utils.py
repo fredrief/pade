@@ -64,6 +64,7 @@ def get_kwarg(dict, key, default=None):
 
 def get_logger(logf=None, name='cbadc'):
     logger = logging.getLogger(name)
+    logger.handlers = [] # To diable stdout
     logger.setLevel(logging.INFO)
     if logf is not None:
         handler = logging.FileHandler(logf, 'w')

@@ -112,17 +112,6 @@ class Evaluation:
     """
     def __init__(self, parser, expressions, **kwargs):
         """
-            Parameters:
-                parser: PSFParser
-                    Holding the signals
-                expressions: [Expression]
-                    List of expressions to evaluate
-
-            Keyword arguments:
-                latex_dir: str
-                    Path to directory where latex tables are saved
-                html_dir: str
-                    Path to directory where html tables are saved
         """
         self.parser = parser
         self.expressions = expressions
@@ -141,23 +130,21 @@ class Evaluation:
         Do evaluation
         """
         expressions = self.expressions
-        simulations = self.parser.simulations # This is typically the corner names
+        sim = self.parser.sim_name # This is typically the corner names
         # Declear empty results dict
         results_dict = {'Parameter': []}
-        for sim in simulations:
-            results_dict[sim] = []
+        results_dict[sim] = []
         for e in expressions:
             results_dict['Parameter'].append(e.name)
-            for sim in simulations:
-                signal_list = []
-                for signal_name in e.signal_names:
-                    try:
-                        signal_list.append(self.parser.get_signal(signal_name, e.analysis_name, sim))
-                    except:
-                        # If the signal is not in the parser, try to find it in previously evaluated expressions
-                        sidx = [i for i in range(len(results_dict[sim])) if results_dict[sim][i].name == signal_name]
-                        signal_list.append(results_dict[sim][sidx[0]])
-                results_dict[sim].append(e.evaluate(signal_list))
+            signal_list = []
+            for signal_name in e.signal_names:
+                try:
+                    signal_list.append(self.parser.get_signal(signal_name, e.analysis_name))
+                except:
+                    # If the signal is not in the parser, try to find it in previously evaluated expressions
+                    sidx = [i for i in range(len(results_dict[sim])) if results_dict[sim][i].name == signal_name]
+                    signal_list.append(results_dict[sim][sidx[0]])
+            results_dict[sim].append(e.evaluate(signal_list))
         self.results = pd.DataFrame(results_dict)
         self.results = self.results.set_index('Parameter')
 
