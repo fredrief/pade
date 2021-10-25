@@ -98,13 +98,15 @@ def copy(root, oldname, newname):
     newname = newname.split("/")[-1]
 
     # Rename directories and delete files within dirs
+    # Ignore simulation data
     dirs = lsd(old_project_path)
     for dir in dirs:
-        newdirname = dir.name.replace(oldname, newname)
-        newpath = to_path(new_project_path, newdirname)
-        cp(dir, newpath)
-        files = ls(newpath)
-        rm(files)
+        if not 'sim_data' in dir.name:
+            newdirname = dir.name.replace(oldname, newname)
+            newpath = to_path(new_project_path, newdirname)
+            cp(dir, newpath)
+            files = ls(newpath)
+            rm(files)
 
     # Rename files
     files = lsf(old_project_path)

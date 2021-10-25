@@ -95,7 +95,11 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         return "{:.2f~P}".format(self.to_quantity())
 
     def __len__(self):
-        return len(self.trace)
+        try:
+            return len(self.trace)
+        except TypeError:
+            # trace is not a list
+            return 1
 
     def __format__(self, format_spec):
         return self.to_quantity().__format__(format_spec)

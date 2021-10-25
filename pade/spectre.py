@@ -94,7 +94,7 @@ class Spectre(object):
         if self.montecarlo_settings:
             self.montecarlo_settings[param] = value
         else:
-            warn('Cannot set parameter because montecarlo settings does not exist')
+            self.logger.warn('Cannot set parameter because montecarlo settings does not exist')
 
     def init_netlist(self):
         """
@@ -105,7 +105,7 @@ class Spectre(object):
         self.netlist_string += "// Design cell name: {}\n".format(self.design.cell_name)
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
-        self.netlist_string += "include \"$SPECTRE_MODEL_PATH/design_wrapper.lib.scs\" section=[MODELFILE]\n"
+        self.netlist_string += f"include \"{self.local_info['spectre_model_path']}\" section=[MODELFILE]\n"
 
         # Schematic
         self.netlist_string += self.design.get_netlist_string()
