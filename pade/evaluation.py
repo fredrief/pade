@@ -145,7 +145,7 @@ class Evaluation:
                     sidx = [i for i in range(len(results_dict[sim])) if results_dict[sim][i].name == signal_name]
                     signal_list.append(results_dict[sim][sidx[0]])
             results_dict[sim].append(e.evaluate(signal_list))
-        self.results = pd.DataFrame(results_dict)
+        self.results = pd.DataFrame.from_dict(results_dict)
         self.results = self.results.set_index('Parameter')
 
 

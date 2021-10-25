@@ -56,7 +56,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         Signal class
         Parameters:
             trace: Array like
-                Array or scalar holding the signal value
+                Array(!) holding the signal value
             unit: str or Unit
                 The unit
             name: str
@@ -72,13 +72,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
     """
     def __init__(self, trace, unit, name=None, analysis=None, simulation=None, sweep=None, passed_spec=None):
         self.name = name
-        try:
-            if len(trace) == 1:
-                self.trace = trace[0]
-            else:
-                self.trace = trace
-        except:
-            self.trace = trace
+        self.trace = trace
         if isinstance(unit, str):
             unit = Q_(1, unit).units
         self.unit = unit
@@ -95,11 +89,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         return "{:.2f~P}".format(self.to_quantity())
 
     def __len__(self):
-        try:
-            return len(self.trace)
-        except TypeError:
-            # trace is not a list
-            return 1
+        return len(self.trace)
 
     def __format__(self, format_spec):
         return self.to_quantity().__format__(format_spec)
