@@ -2,53 +2,46 @@ import click
 import os
 from shlib.shlib import ls, lsd, lsf, rm, to_path, cp, mkdir, touch, mv
 
+def _rename_files(old_path, new_path, oldname, newname, delete_old_files=False):
+    # Rename files
+    files = lsf(old_path)
+    for file in files:
+        try:
+            newfilename = file.name.replace(oldname, newname)
+            newpath = to_path(new_path, newfilename)
+            with open(file, 'r') as fin:
+                with open(newpath, 'w') as fout:
+                    for line in fin.readlines():
+                        line = line.replace(oldname, newname)
+                        fout.write(line)
+        except UnicodeDecodeError:
+            # Delete corrupt file
+            rm(newpath)
+            click.echo(f'Could not read file: {newpath}')
+        if delete_old_files:
+            rm(file)
+
+def _rename_dirs(old_project_path, new_project_path, delete_files=True, ignore=['sim_data', 'pycache']):
+    oldname = old_project_path.name
+    newname = new_project_path.name
+    # Ignore simulation data
+    dirs = lsd(old_project_path)
+    for dir in dirs:
+        if not any(ignore[i] in dir.name for i in range(len(ignore))):
+            newdirname = dir.name.replace(oldname, newname)
+            newpath = to_path(new_project_path, newdirname)
+            cp(dir, newpath)
+            if delete_files:
+                files = ls(newpath)
+                rm(files)
+            else:
+                _rename_files(dir, newpath, oldname, newname)
+
+
 @click.group()
 def cli():
     """ Python based Analog Design Environment """
     pass
-
-@cli.command()
-@click.argument('root', type=click.Path(exists=True))
-@click.argument('name', type=str)
-def setup(root, name):
-    """ Setup new project in root directory 'root' with name 'name' """
-    project_path = to_path(root, name)
-    exist_project = os.path.exists(project_path)
-    if exist_project:
-        click.echo(f'Project does already exist!')
-        return
-
-    click.echo(f'Creating directories for project {name} in {root}')
-
-    # Make root directory
-    mkdir(project_path)
-    path_base = f'{project_path}/{name}'
-
-    # Make other directories
-    mkdir(f'{path_base}_sim_data')
-    mkdir(f'{path_base}_notebooks')
-    mkdir(f'{path_base}_verilog')
-
-    # Write script template
-    with open("/home/fredrief/projects/pade/templates/main.py", 'r') as fin:
-        with open(f'{path_base}.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace('navn', name)
-                fout.write(line)
-
-    # Write testbench template
-    with open("/home/fredrief/projects/pade/templates/tb.py", 'r') as fin:
-        with open(f'{path_base}_tb.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace('navn', name)
-                fout.write(line)
-
-    # Write components template
-    with open("/home/fredrief/projects/pade/templates/components.py", 'r') as fin:
-        with open(f'{path_base}_components.py', 'w') as fout:
-            for line in fin.readlines():
-                line = line.replace('navn', name)
-                fout.write(line)
 
 
 @cli.command()
@@ -60,28 +53,10 @@ def rename(root, oldname, newname):
     old_project_path = to_path(root, oldname)
     new_project_path = to_path(root, newname)
     mkdir(new_project_path)
-    # In case newname hase parent dirs, get only name
-    newname = newname.split("/")[-1]
 
-    # Rename directories
-    dirs = lsd(old_project_path)
-    for dir in dirs:
-        newdirname = dir.name.replace(oldname, newname)
-        newpath = to_path(new_project_path, newdirname)
-        mv(dir, newpath)
+    _rename_dirs(old_project_path, new_project_path, delete_files=False, ignore=['sim_data', 'pycache'])
+    _rename_files(old_project_path, new_project_path, oldname, newname, delete_old_files=True)
 
-    # Rename files
-    files = lsf(old_project_path)
-    for file in files:
-        newfilename = file.name.replace(oldname, newname)
-        newpath = to_path(new_project_path, newfilename)
-        touch(newpath)
-        with open(file, 'r') as fin:
-            with open(newpath, 'w') as fout:
-                for line in fin.readlines():
-                    line = line.replace(oldname, newname)
-                    fout.write(line)
-        rm(file)
     rm(old_project_path)
 
 
@@ -94,29 +69,8 @@ def copy(root, oldname, newname):
     old_project_path = to_path(root, oldname)
     new_project_path = to_path(root, newname)
     mkdir(new_project_path)
-    # In case newname hase parent dirs, get only name
-    newname = newname.split("/")[-1]
 
     # Rename directories and delete files within dirs
-    # Ignore simulation data
-    dirs = lsd(old_project_path)
-    for dir in dirs:
-        if not 'sim_data' in dir.name:
-            newdirname = dir.name.replace(oldname, newname)
-            newpath = to_path(new_project_path, newdirname)
-            cp(dir, newpath)
-            files = ls(newpath)
-            rm(files)
+    _rename_dirs(old_project_path, new_project_path, delete_files=False, ignore=['sim_data', 'pycache'])
 
-    # Rename files
-    files = lsf(old_project_path)
-    for file in files:
-        newfilename = file.name.replace(oldname, newname)
-        newpath = to_path(new_project_path, newfilename)
-        touch(newpath)
-        with open(file, 'r') as fin:
-            with open(newpath, 'w') as fout:
-                for line in fin.readlines():
-                    line = line.replace(oldname, newname)
-                    fout.write(line)
-
+    _rename_files(old_project_path, new_project_path, oldname, newname)
