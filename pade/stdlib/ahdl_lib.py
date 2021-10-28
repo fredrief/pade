@@ -1,4 +1,4 @@
-from os import terminal_size
+import os
 from pade.schematic import Cell
 from pade.utils import num2string
 from shlib import to_path
@@ -6,9 +6,10 @@ class ahdl_cell(Cell):
     """
     Use prewritten verilog-a model from Cadence library
     """
-    def __init__(self, cell_name, instance_name, design, parent_cell=None, parameters={}):
+    def __init__(self, cell_name, instance_name, design, ahdl_lib_path, parent_cell=None, parameters={}):
+
         # model library directory
-        modlibpath = to_path(f'/eda/tools/cadence/icadv.12.30.823/tools.lnx86/dfII/samples/artist/ahdlLib/{cell_name}/veriloga/veriloga.va')
+        modlibpath = to_path(f'{ahdl_lib_path}/{cell_name}/veriloga/veriloga.va')
         if not modlibpath.is_readable():
             raise ValueError(f'AHDL model {cell_name} does not exist')
 
