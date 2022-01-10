@@ -1,14 +1,14 @@
 from pade.schematic import Cell
-from pade.utils import num2string
+from pade.utils import get_kwarg, num2string
 
 class switch(Cell):
     """
     Switch
     Terminals: 'Np', 'Nm', 'NCp', 'NCm'
     """
-    def __init__(self, instance_name, design, ropen='1T', rclosed='10.0', vt1=0.45, vt2=0.55, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, ropen='1T', rclosed='10.0', vt1=0.45, vt2=0.55):
         # Call super init
-        super().__init__('switch', instance_name, design, library_name="analog_lib", parent_cell=parent_cell, declare=True)
+        super().__init__('switch', instance_name, parent_cell, library_name="analog_lib", declare=True)
         # Add terminals
         self.add_multiple_terminals(['Np', 'Nm', 'NCp', 'NCm'])
         self.parameters = {
@@ -23,7 +23,7 @@ class switch(Cell):
             'ropen': 'ropen',
             'rclosed': 'rclosed',
         }
-        sw = relay('SW', design, parameters=sw_params, parent_cell=self).quick_connect(
+        sw = relay('SW', parent_cell=self, parameters=sw_params).quick_connect(
             ['N+', 'N-', 'NC+', 'NC-'],
             ['Np', 'Nm', 'NCp', 'NCm'])
 
@@ -32,21 +32,18 @@ class relay(Cell):
     Relay / ideal switch
     Terminals: 'N+', 'N-', 'NC+', 'NC-'
     """
-    def __init__(self, instance_name, design, ropen='1T', rclosed='1000.0', parameters={}, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, ropen='1T', rclosed='1000.0', parameters={}):
         # Call super init
-        super().__init__('relay', instance_name, design, library_name="analog_lib", parent_cell=parent_cell, declare=False)
+        super().__init__('relay', instance_name, parent_cell, library_name="analog_lib", declare=False)
         # Add terminals
         self.add_multiple_terminals(['N+', 'N-', 'NC+', 'NC-'])
         # Add parameters
         self.set_parameter('ropen', ropen)
         self.set_parameter('rclosed', rclosed)
-        # Try to find vdd
-        try:
-            vdd = design.vdd
-            self.set_parameter('vt1', vdd/2-vdd/3)
-            self.set_parameter('vt2', vdd/2+vdd/3)
-        except:
-            pass
+
+        self.set_parameter('vt1', get_kwarg(parameters, 'vt1', 0.3))
+        self.set_parameter('vt2', get_kwarg(parameters, 'vt1', 0.7))
+
         for key in parameters:
             self.parameters[key] = parameters[key]
 
@@ -54,9 +51,9 @@ class transformer(Cell):
     """
     Transformer
     """
-    def __init__(self, instance_name, design, n1, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, n1):
         # Call super init
-        super().__init__('transformer', instance_name, design, library_name="analog_lib", parent_cell=parent_cell, declare=False)
+        super().__init__('transformer', instance_name, parent_cell, library_name="analog_lib", declare=False)
         # Add terminals
         self.add_terminal('pp')
         self.add_terminal('pn')
@@ -71,17 +68,17 @@ class ideal_balun(Cell):
     Ideal Balun
     Terminals: 'd', 'c', 'p', 'n'
     """
-    def __init__(self, instance_name, design, parent_cell=None):
+    def __init__(self, instance_name, parent_cell):
         # Call super init
-        super().__init__('ideal_balun', instance_name, design, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('ideal_balun', instance_name, parent_cell, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("d", "In")
-        self.add_terminal("c", "In")
-        self.add_terminal("p", "Out")
-        self.add_terminal("n", "Out")
+        self.add_terminal("d")
+        self.add_terminal("c")
+        self.add_terminal("p")
+        self.add_terminal("n")
         # Add subcells
-        k0 = transformer('K0', design, 2, self).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'p', 'c'])
-        k1 = transformer('K1', design, 2, self).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'c', 'n'])
+        k0 = transformer('K0', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'p', 'c'])
+        k1 = transformer('K1', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'c', 'n'])
 
 
 class res(Cell):
@@ -89,9 +86,9 @@ class res(Cell):
     Resistor
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, R, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, R):
         # Call super init
-        super().__init__('resistor', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('resistor', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -103,9 +100,9 @@ class cap(Cell):
     Capacitor
     terminals: p, n
     """
-    def __init__(self, instance_name, design, C, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, C):
         # Call super init
-        super().__init__('capacitor', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('capacitor', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -117,9 +114,9 @@ class idc(Cell):
     DC Current source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, idc, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, idc):
         # Call super init
-        super().__init__('isource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -131,9 +128,9 @@ class ipulse(Cell):
     Current pulse source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, i1, i2, per, parameters={}, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, i1, i2, per, parameters={}):
         # Call super init
-        super().__init__('isource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -147,9 +144,9 @@ class vdc(Cell):
     DC Voltage source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, vdc, parent_cell=None, **kwargs):
+    def __init__(self, instance_name, parent_cell, vdc, **kwargs):
         # Call super init
-        super().__init__('vsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -163,9 +160,9 @@ class vsin(Cell):
     DC Voltage source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, vdc, ampl, freq, parent_cell=None, **kwargs):
+    def __init__(self, instance_name, parent_cell, vdc, ampl, freq, **kwargs):
         # Call super init
-        super().__init__('vsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -179,9 +176,9 @@ class vccs(Cell):
     Voltage Controlled Current Source (Ideal Transconductor)
     Terminals: 'out_n', 'out_p', 'in_p', 'in_n'
     """
-    def __init__(self, instance_name, design, gm, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, gm):
         # Call super init
-        super().__init__('vccs', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('vccs', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("out_n")
         self.add_terminal("out_p")
@@ -195,9 +192,9 @@ class vcvs(Cell):
     Voltage Controlled Voltage Source (Ideal Voltage Amplifier)
     Terminals: 'out_p', 'out_n', 'in_p', 'in_n'
     """
-    def __init__(self, instance_name, design, gain, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, gain):
         # Call super init
-        super().__init__('vcvs', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('vcvs', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("out_p")
         self.add_terminal("out_n")
@@ -211,9 +208,9 @@ class vpulse(Cell):
     DC Voltage source
     Terminals: p, n
     """
-    def __init__(self, instance_name, design, val0, val1, period, delay=None, rise=None, fall=None, width=None,  parent_cell=None):
+    def __init__(self, instance_name, parent_cell, val0, val1, period, delay=None, rise=None, fall=None, width=None):
         # Call super init
-        super().__init__('vsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("p")
         self.add_terminal("n")
@@ -234,9 +231,9 @@ class bsource(Cell):
     Behavioral Source Use Model
     Terminals: 'p', 'n'
     """
-    def __init__(self, instance_name, design, output, expression, parameters={}, parent_cell=None):
+    def __init__(self, instance_name, parent_cell, output, expression, parameters={}):
         # Call super init
-        super().__init__('bsource', instance_name, design, declare=False, library_name="analog_lib", parent_cell=parent_cell)
+        super().__init__('bsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.add_terminal("n")
         self.add_terminal("p")

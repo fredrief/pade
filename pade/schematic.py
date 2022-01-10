@@ -1,262 +1,54 @@
-from datetime import datetime
-from scipy.linalg import hadamard
+from pade.schematic_old import Cell
 from pade.utils import num2string, get_kwarg
-import sys
-import os
-from inform import warn, fatal
 import re
-
-
-class Design:
-    """
-    Design class
-    """
-    def __init__(self, cell_name, parameters={}, **kwargs):
-        """
-        Initialize design
-        """
-        # Dictionary to hold all child cells
-        self.cells = {}
-        # Dictionary of parameters
-        self.parameters = parameters
-        # Dictionary of nets. Always include gnd
-        self.nets = {}
-        self.add_net('0')
-        # Design meta:
-        self.cell_name = cell_name
-        # Netlist string. Contains all design-related info. Is completed by simulator
-        self.netlist_string = ""
-        # Initial conditions
-        self.ic = get_kwarg(kwargs, 'ic')
-        self.netlist_filename = get_kwarg(kwargs, 'netlist_filename')
-
-
-    def __str__(self):
-        s = "# -------------------------------------------------------- #\n"
-        s += "Design object for {}:\n".format(self.cell_name)
-        s += "PARAMETERS: \n"
-        for key in self.parameters:
-            value = self.parameters[key]
-            s += "{}: {}\n".format(key, value)
-        s += "CELLS: ({})\n".format(len(self.cells))
-        for cell_name in self.cells:
-            s += self.cells[cell_name].__str__() + "\n"
-        s += "# -------------------------------------------------------- #"
-        return s
-
-    def wire_up(self):
-        """
-        Defines the design. Implemented by subclass.
-        """
-        pass
-
-    def add_net(self, net):
-        """
-        Add net to desing
-        Arguments:
-            net: Net
-        """
-        # If net is Net, connect directly
-        if isinstance(net, Net):
-            self.nets[net.name] = net
-        # If net is str, assume create a Net with this name and connect
-        elif isinstance(net, str):
-            net = Net(net, self)
-            self.nets[net.name] = net
-        else:
-            raise ValueError('Could not add ned. Must be a Net or a string')
-
-    def has_net(self, net_name):
-        """
-        Check if net named net_name is already in design
-        """
-        return net_name in self.nets
-
-    def get_net(self, net_name):
-        """
-        Return net of name net_name if exist else None
-        """
-        if net_name in self.nets:
-            return self.nets[net_name]
-        else:
-            return None
-
-    def get_subckts(self):
-        """
-        Returns a ordered list of all unique subckts in design
-        """
-        subckts = []
-        for cell_name in self.cells:
-            cell = self.cells[cell_name]
-            subckts = cell.append_subckt_list(subckts)
-        return subckts
-
-    def add_parameters(self, parameters):
-        """
-        Add parameters to design
-
-        Arguments
-            parameters: Dictionary
-        """
-        # Copy parameters
-        for key in parameters:
-            if not key in self.parameters:
-                self.parameters[key] = parameters[key]
-
-
-    def add_cells(self, cells):
-        """
-        Add cell to design
-        Arguments
-            cells: list of Cell objects
-        """
-        for cell in cells:
-            # Connect design and cell objects
-            if(self.has_cell(cell.instance_name)):
-                warn(f"WARNING: instance_name {cell.instance_name} is instantiated twice! This might result in errors in the netlist.")
-            self.cells[cell.instance_name] = cell
-
-    def get_cell(self, instance_name):
-        """
-        Return cell 'instance_name' if exists
-        """
-        if instance_name in self.cells:
-            return self.cells[instance_name]
-        else:
-            raise ValueError(f'Cell with name {instance_name} does not exist')
-
-    def remove_cell(self, instance_name):
-        """
-        Remove cell 'instance_name' from design if exists
-        """
-        if instance_name in self.cells:
-            del self.cells[instance_name]
-        else:
-            raise ValueError(f'Cell with name {instance_name} does not exist')
-
-    def has_cell(self, instance_name):
-        return instance_name in self.cells
-
-
-    def get_cell_meta(self):
-        """
-        Return commented cell meta text
-        """
-        s = "// Design cell name: {}\n".format(self.cell_name)
-        return s
-
-    def get_parameter_string(self):
-        s = "parameters"
-        for p, value in self.parameters.items():
-            s += " {}={}".format(p, num2string(value))
-        return s
-
-    def rewrite_netlist(self):
-        self.netlist_string = ""
-        self.write_netlist()
-
-
-    def write_netlist(self, netlist_filename=None):
-        """
-        This function writes the netlist for the design, to the local variable self.netlist_string.
-        The netlist will be completed by the simulator
-
-        The netlist format is:
-            - PARAMETERS
-            - SUBCKTS
-            - ACTUAL DESIGN (TB)
-            - SIMULATOR OPTIONS
-            - OTHER OPTIONS - completed by simulator
-            - INCLUDE - completed by simulator
-        """
-        ### Return netlist from file if exists
-        if netlist_filename:
-            with open(netlist_filename, 'r') as f:
-                for line in f.readline():
-                    self.append_netlist_string(line)
-            return
-        ### Else build netlist from cells
-
-        # PARAMETERS
-        if len(self.parameters) > 0:
-            self.append_netlist_string(self.get_parameter_string() + "\n\n")
-        else:
-            self.append_netlist_string("\n\n")
-
-        # SUBCKTS
-        subckts = self.get_subckts()
-        for cell in subckts:
-            if cell.declare_subckt:
-                self.append_netlist_string(cell.get_subckt_string() + "\n")
-            self.append_netlist_string(cell.get_include_statements())
-
-        # ACTUAL DESIGN
-        # Write metatext and all components of design
-        self.append_netlist_string(self.get_cell_meta())
-        for cell_name in self.cells:
-            cell = self.cells[cell_name]
-            self.append_netlist_string(cell.get_instance_string())
-
-    def append_netlist_string(self, lines):
-        self.netlist_string += lines
-
-    def get_netlist_string(self):
-        self.rewrite_netlist()
-        return self.netlist_string
 
 class Cell:
     """
     Cell view
     """
-    def __init__(self, cell_name, instance_name, design, **kwargs):
+    def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
         """
         Initialize cell_view
 
         Arguments
+            cell_name: str
+            instance_name: str
+            logger: Logger
+        Keyword arguments:
+            exclude_list:
+                List of strings that are matched to exclude subcells in subckt definition. Only applicable if netlist_filename is provided. (default [])
             declare: bool
                 Whether the cell should be declared in beginning of netlist or not. This should be set to false if the cell is a standard spectre component like cap or res
             parent_cell: Cell
                 Specify if the cell is a subcell of another cell
 
-        Keyword arguments:
-            exclude_list:
-                List of strings that are matched to exclude subcells in subckt definition. Only applicable if netlist_filename is provided. (default [])
-
         """
-        # List of terminals
-
-        self.terminals = []
-
+        self.terminals = {}
         self.nets = {}
-        self.cell_name = cell_name
-        self.instance_name = instance_name
+        self.subcells = {}
         # Parameters dict (Only parameters that is passed to spectre)
         self.parameters = {}
+        self.cell_name = cell_name
+        self.instance_name = instance_name
+
         # Connect cell and design/parent cell
-        self.design = design
-        self.parent_cell = get_kwarg(kwargs, 'parent_cell')
+        self.parent_cell = parent_cell
         if self.parent_cell:
             self.parent_cell.add_subcell(self)
-        else:
-            design.add_cells([self])
 
-        self.subcells = {}
         # Generate parameters and terminals if netlist is available
         netlist_filename = get_kwarg(kwargs, 'netlist_filename')
         if netlist_filename:
-            self.extract_data_from_file(netlist_filename, design, **kwargs)
+            self.extract_data_from_file(netlist_filename, **kwargs)
         # Initialize subckt string
         self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
         # AHDL Filepath
         self.ahdl_filepath = ""
-        # Include filepath
+        # Include filepath (additional filepath to include)
         self.include_filepath = ""
 
 
-    # def add(self, contructor, cell_name **kwargs):
-    #     """ Instantiate and add subcell to self """
-
-    def extract_data_from_file(self, file, design, **kwargs):
+    def extract_data_from_file(self, file, **kwargs):
         """
         Read a spectre netlist and define parameters and terminals accordingly
             Supports line continuity for both parameters and terminals.
@@ -294,8 +86,7 @@ class Cell:
             # Define terminals
             elif line.startswith('subckt'):
                 if not self.cell_name == line.split()[1]:
-                    fatal('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
-
+                    raise ValueError('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
                 for terminal in line.split()[2:]:
                     self.add_terminal(terminal)
             # Define subcells in subckt
@@ -322,7 +113,7 @@ class Cell:
                     if(exclusion in line):
                         skip_subcell = 1
                 if(skip_subcell == 0):
-                    subcell = Cell(sc_cell_name, sc_instance_name, design, declare=False, parent_cell=self)
+                    subcell = Cell(sc_cell_name, sc_instance_name, declare=False, parent_cell=self)
                     subcell.add_multiple_terminals(sc_terminals)
                     subcell.quick_connect(sc_terminals, sc_connected_nets)
                     subcell.add_parameters(sc_param_dict)
@@ -330,14 +121,10 @@ class Cell:
     def add_parameters(self, parameters):
         """
         Add parameters to design
-
         Arguments
             parameters: Dictionary
         """
-        # Copy parameters
-        for key in parameters:
-            if not key in self.parameters:
-                self.parameters[key] = parameters[key]
+        self.parameters = {**self.parameters, **parameters}
 
     def append_subckt_list(self, subckt_list):
         """
@@ -375,9 +162,9 @@ class Cell:
         """
         s = ""
         if self.include_filepath != "":
-            s += 'include "{}"\n'.format(self.include_filepath)
+            s += f'include "{self.include_filepath}"\n'
         if self.ahdl_filepath != "":
-            s += 'ahdl_include "{}"\n'.format(self.ahdl_filepath)
+            s += f'ahdl_include "{self.ahdl_filepath}"\n'
         return s
 
     def get_subckt_string(self):
@@ -388,16 +175,11 @@ class Cell:
         s = ""
         s += f"// Cell name: {self.cell_name}\n"
         s += "// View name: schematic\n"
-        s += f"subckt {self.cell_name} "
+        s += f"subckt {self.cell_name}"
         # TERMINALS
-        for t in self.terminals:
-            s += t.name
-            # Add space after all except the last
-            if not t==self.terminals[-1]:
-                s += " "
-            # Add new line after last terminal
-            else:
-                s += "\n"
+        for t in self.get_sorted_terminal_list():
+            s += f' {t.name}'
+        s += "\n"
         # PARAMETERS
         if self.parameters:
             s += "parameters "
@@ -419,19 +201,17 @@ class Cell:
         """
         Return instance string for netlist
         """
-        # The all terminals of cell must be connected to nets before instance string can be generated
-        if any([t.net is None for t in self.terminals]):
+        # All terminals of cell must be connected to nets before instance string can be generated
+        if any([t.net is None for t in self.terminals.values()]):
             unconnected_terminals = []
             for t in self.terminals:
                 if t.net is None:
                     unconnected_terminals.append(t.name)
             raise RuntimeError(f'Cell {self.instance_name} has unconnected terminals: {unconnected_terminals}')
-        s  = "{} ".format(self.instance_name)
-        for t in self.terminals:
-            s += "{}".format(t.net.name)
-            # Add space after all except the last
-            if not t==self.terminals[-1]:
-                s += " "
+        s  = f"{self.instance_name}"
+        t_list = self.get_sorted_terminal_list()
+        for t in t_list:
+            s += f" {t.net.name}"
         s += " {} ".format(self.cell_name)
         # Add parameters that is not None
         params = self.parameters if self.parameters is not None else []
@@ -441,31 +221,22 @@ class Cell:
         s += "\n"
         return s
 
-    def __str__(self):
-        # Display name and instance name
-        s  = "{}: {}\n".format(self.cell_name, self.instance_name)
+    def get_sorted_terminal_list(self):
+        """
+        Return a list of terminals, sorted by index
+        """
+        t_list = self.terminals.values()
+        return sorted(t_list, key=lambda t: t.index)
 
-        # Display terminals and connected nets
-        s += "# Connections: "
-        for i, x in enumerate(self.terminals):
-            s+= f"({x.name} -> {x.net.name})"
-            if(i < len(self.terminals)-1):
-                s+= ", "
-
-        return s+"\n"
-
-    def add_terminal(self, name, iotype=None, pos=None):
+    def add_terminal(self, name):
         """
         Add terminal <name> if it does not already exist
         Added both as an attribute and as a member of list of terminals
         """
         if not hasattr(self,name) and isinstance(name, str):
-            terminal = Terminal(name, self, self.design, iotype=iotype, pos=pos)
+            terminal = Terminal(name, self)
             setattr(self, name, terminal)
-            self.terminals.append(terminal)
-            # Connect terminal to net of same name
-            net = Net(name, self)
-            terminal.connect(net)
+            self.terminals[name] = terminal
         else:
             raise ValueError('Terminal {} already exist/was not set for another reason'.format(name))
 
@@ -475,12 +246,6 @@ class Cell:
         """
         for t in terminals:
             self.add_terminal(t)
-
-    def has_terminal(self, tname):
-        if not isinstance(tname, str):
-            raise ValueError('Terminal name must be a string')
-        else:
-            return hasattr(self, tname)
 
     def get_terminal(self, tname):
         """
@@ -493,14 +258,6 @@ class Cell:
         else:
             return getattr(self,tname)
 
-    def get_all_terminal_names(self):
-        """
-        Returns a list containing all terminals in cell
-        """
-        terminals = []
-        for x in self.terminals:
-            terminals.append(x.name)
-        return terminals
 
     def get_net(self, net_name):
         """
@@ -579,33 +336,111 @@ class Cell:
         self.parameters[name] = num2string(value)
 
 
+class Design(Cell):
+    """
+    Top-level design class
+    """
+    def __init__(self, cell_name, **kwargs):
+        super().__init__(cell_name, cell_name, **kwargs)
+        self.add_net('0')
+        # Initial conditions
+        self.ic = get_kwarg(kwargs, 'ic')
+
+
+    def get_subckts(self):
+        """
+        Returns a ordered list of all unique subckts in design
+        """
+        subckts = []
+        for cell_name in self.subcells:
+            cell = self.subcells[cell_name]
+            subckts = cell.append_subckt_list(subckts)
+        return subckts
+
+    def get_cell_meta(self):
+        """
+        Return commented cell meta text
+        """
+        s = "// Design cell name: {}\n".format(self.cell_name)
+        return s
+
+    def get_parameter_string(self):
+        s = "parameters"
+        for p, value in self.parameters.items():
+            s += " {}={}".format(p, num2string(value))
+        return s
+
+    def rewrite_netlist(self):
+        self.netlist_string = ""
+        self.write_netlist()
+
+
+    def write_netlist(self, netlist_filename=None):
+        """
+        This function writes the netlist for the design, to the local variable self.netlist_string.
+        The netlist will be completed by the simulator
+
+        The netlist format is:
+            - PARAMETERS
+            - SUBCKTS
+            - ACTUAL DESIGN (TB)
+            - SIMULATOR OPTIONS
+            - OTHER OPTIONS - completed by simulator
+            - INCLUDE - completed by simulator
+        """
+        ### Return netlist from file if exists
+        if netlist_filename:
+            with open(netlist_filename, 'r') as f:
+                for line in f.readline():
+                    self.append_netlist_string(line)
+            return
+        ### Else build netlist from cells
+
+        # PARAMETERS
+        if len(self.parameters) > 0:
+            self.append_netlist_string(self.get_parameter_string() + "\n\n")
+        else:
+            self.append_netlist_string("\n\n")
+
+        # SUBCKTS
+        subckts = self.get_subckts()
+        for cell in subckts:
+            if cell.declare_subckt:
+                self.append_netlist_string(cell.get_subckt_string() + "\n")
+            self.append_netlist_string(cell.get_include_statements())
+
+        # ACTUAL DESIGN
+        # Write metatext and all components of design
+        self.append_netlist_string(self.get_cell_meta())
+        for cell_name in self.subcells:
+            cell = self.subcells[cell_name]
+            self.append_netlist_string(cell.get_instance_string())
+
+    def append_netlist_string(self, lines):
+        self.netlist_string += lines
+
+    def get_netlist_string(self):
+        self.rewrite_netlist()
+        return self.netlist_string
+
 class Terminal:
     """
     Terminal
     A Terminal is owned by a Cell and connected to a net
-    It contains a reference to its cell as well as the design
+    It contains a reference to its cell.
+    It knows in which order it appears in the netlist definition.
 
     """
-    def __init__(self, name, cell, design, iotype=None, pos=None):
-        """
-        Arguments
-            iotype: string
-                Has to be either "In", "Out" or None
-            pos:
-                Used for schematic
-        """
+    def __init__(self, name: str, cell: Cell):
+
         self.name = name
         self.net = None
         self.cell = cell
-        self.design = design
-        self.pos=pos
-        if not (iotype is None or "In" or "Out"):
-            raise ValueError('Invalid terminal type: {}'.format(iotype))
-        else:
-            self.iotype = iotype
+        # Index of self in definition of cell
+        self.index = len(cell.terminals) + 1
 
     def __str__(self):
-        s  = "Terminal {} of cell {} in design {}\n".format(self.name, self.cell.instance_name, self.design.cell_name)
+        s  = f"Terminal {self.name} of cell {self.cell.instance_name}\n"
         s += "Connected to net: {}\n".format(self.net.name if self.net else "None")
         return s
 
@@ -630,7 +465,7 @@ class Terminal:
             net.connect([self])
         # If net is str, check if net exist, else create a Net with this name and connect
         elif isinstance(net, str):
-            parent = self.cell.parent_cell if self.cell.parent_cell else self.design
+            parent = self.cell.parent_cell
             if parent.has_net(net):
                 net = parent.get_net(net)
             else:
