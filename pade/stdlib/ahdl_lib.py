@@ -6,14 +6,14 @@ class ahdl_cell(Cell):
     """
     Use prewritten verilog-a model from Cadence library
     """
-    def __init__(self, cell_name, instance_name, design, ahdl_lib_path, parent_cell=None, parameters={}):
+    def __init__(self, cell_name, instance_name, parent_cell, ahdl_lib_path, parameters={}):
 
         # model library directory
         modlibpath = to_path(ahdl_lib_path,cell_name,f'veriloga/veriloga.va')
         if not modlibpath.is_readable():
             raise ValueError(f'AHDL model {cell_name} does not exist')
 
-        super().__init__(cell_name, instance_name, design, library_name="ahdl_lib", parent_cell=parent_cell, declare=False)
+        super().__init__(cell_name, instance_name, parent_cell, library_name="ahdl_lib", declare=False)
         self.add_multiple_terminals(parse_model(cell_name, modlibpath))
         self.ahdl_filepath=modlibpath
         self.add_parameters(parameters)
