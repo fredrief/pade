@@ -18,8 +18,8 @@ class Test:
         self.project_root_dir = project_root_dir
         self.design = design
         # Output selection
-        if self.debug:
-            self.output_selections = ['*'] if not self.debug_currents else ['*', '*:currents']
+        # if self.debug:
+        #     self.output_selections = ['*'] if not self.debug_currents else ['*', '*:currents']
         self.expressions = expressions
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
@@ -165,7 +165,11 @@ class Test:
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
         # Initialize simulator
         self.mt = get_kwarg(kwargs, 'mt', 2)
-        self.command_options = kwargs['command_options'] if 'command_options' in kwargs else ['-f', 'psfascii', '++aps', f'+mt={self.mt}', '-log']
+        # command options
+        self.command_options = ['-f', 'psfascii', '++aps', f'+mt={self.mt}', '-log']
+        if 'command_options' in kwargs:
+            for opt in kwargs['command_options']:
+                self.command_options.append(opt)
         self.output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
         # Add all signal names from expressions
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []

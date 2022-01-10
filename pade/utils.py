@@ -8,7 +8,7 @@ from shlib.shlib import to_path, mkdir
 
 
 
-def num2string(val, asint=False, decimals=8):
+def num2string(val, asint=False, decimals=8, nodot=False):
     # Some special cases
     if isinstance(val, str):
         return val
@@ -50,6 +50,15 @@ def num2string(val, asint=False, decimals=8):
     numstring = ""
     if asint or decimals < 1 or isinstance(val, int):
         numstring = f'{int(val)}' + prefix
+    elif nodot:
+        val0 = int(val)
+        val1 = val-val0
+        val1 = int(val1*10**(decimals))
+        numstring = f'{val0}{prefix}'
+        if val1 != 0:
+            if prefix == '':
+                numstring += 'x'
+            numstring += f'{val1}'
     else:
         value_str = str(val)
         base_len = len(value_str.split('.')[0])

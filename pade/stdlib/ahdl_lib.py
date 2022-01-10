@@ -9,7 +9,7 @@ class ahdl_cell(Cell):
     def __init__(self, cell_name, instance_name, design, ahdl_lib_path, parent_cell=None, parameters={}):
 
         # model library directory
-        modlibpath = to_path(f'{ahdl_lib_path}/{cell_name}/veriloga/veriloga.va')
+        modlibpath = to_path(ahdl_lib_path,cell_name,f'veriloga/veriloga.va')
         if not modlibpath.is_readable():
             raise ValueError(f'AHDL model {cell_name} does not exist')
 
