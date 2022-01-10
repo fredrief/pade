@@ -1,4 +1,3 @@
-from pade.schematic_old import Cell
 from pade.utils import num2string, get_kwarg
 import re
 
