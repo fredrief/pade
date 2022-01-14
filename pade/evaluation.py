@@ -207,8 +207,7 @@ class Evaluation:
         htmlstr = lambda s: '{:.2f~P}'.format(s) if not isinstance(s, str) else s
         if not self.results is None:
             formatters = {}
-            for sim in self.parser.simulations:
-                formatters[sim] = htmlstr
+            formatters[self.parser.sim_name] = htmlstr
             html_filename = to_path(self.html_dir, 'results.html')
             self.results.to_html(html_filename, formatters=formatters, index=True,)
         if not self.summary is None:
@@ -231,7 +230,6 @@ class Evaluation:
         # Formatter:
         latexstr = lambda s: '${:.2f~Lx}$'.format(s)
         formatters = {}
-        for sim in self.parser.simulations:
-            formatters[sim] = latexstr
+        formatters[self.parser.sim_name] = latexstr
         latex_filename = to_path(self.html_dir, 'results.tex')
         self.results.to_latex(latex_filename, formatters=formatters, index=False, escape=False)

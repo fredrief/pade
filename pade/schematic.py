@@ -203,7 +203,7 @@ class Cell:
         # All terminals of cell must be connected to nets before instance string can be generated
         if any([t.net is None for t in self.terminals.values()]):
             unconnected_terminals = []
-            for t in self.terminals:
+            for t in self.terminals.values():
                 if t.net is None:
                     unconnected_terminals.append(t.name)
             raise RuntimeError(f'Cell {self.instance_name} has unconnected terminals: {unconnected_terminals}')

@@ -187,4 +187,3 @@ class stb(Analysis):
         for param in parameters:
             p[param] = parameters[param]
         super().__init__(name, type='stb', parameters=p)
-

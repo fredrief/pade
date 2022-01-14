@@ -4,9 +4,9 @@ from pade.analysis import tran, dc, noise, ac, Typical
 from pade.spectre import Spectre as Simulator
 from pade.evaluation import Evaluation, Expression
 from pade.utils import get_kwarg, get_logger
+from pade import fatal
 from shlib.shlib import lsf, rm, to_path, mkdir
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter
 
 class Test:
     """
@@ -17,6 +17,7 @@ class Test:
         self.parse_kwargs(**kwargs)
         self.project_root_dir = project_root_dir
         self.design = design
+        self.project_name = project_root_dir.name
         # Output selection
         # if self.debug:
         #     self.output_selections = ['*'] if not self.debug_currents else ['*', '*:currents']
@@ -24,14 +25,14 @@ class Test:
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
         # keep all paths and directories at the same place
-        self.sim_data_dir = to_path(self.project_root_dir, f"{self.design.cell_name}_sim_data", self.dir_name)
+        self.sim_data_dir = to_path(self.project_root_dir, f"{self.project_name}_sim_data", self.dir_name)
         self.log_dir = to_path(self.sim_data_dir,"logs")
         self.netlist_dir = to_path(self.sim_data_dir,"netlists")
         self.res_dir = to_path(self.sim_data_dir,"results")
         self.output_dir = to_path(self.sim_data_dir,"simulation_output")
         self.html_dir = kwargs['html_dir'] if 'html_dir' in kwargs else self.res_dir
         self.latex_dir = kwargs['latex_dir'] if 'latex_dir' in kwargs else self.res_dir
-        self.figure_dir = to_path(self.project_root_dir, f"{self.design.cell_name}_figures")
+        self.figure_dir = to_path(self.project_root_dir, f"{self.project_name}_figures")
         # Logger
         main_logf = to_path(self.log_dir, 'main.log')
         # Make all directories at init
@@ -100,12 +101,24 @@ class Test:
                     try:
                         parser.get_signal(signal, analysis)
                     except:
-                        self.logger.critical(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {self.sim_name}')
+                        fatal(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {self.sim_name}')
         # EVALUATE
         self.evaluation = Evaluation(parser, expressions,
                             html_dir=self.html_dir, latex_dir=self.latex_dir)
         self.evaluation.evaluate()
         return self.evaluation.results
+
+    def to_html(self):
+        try:
+            self.evaluation.to_html()
+        except Exception as e:
+            self.logger.info(f'Failed writing results to HTML table: {e}')
+
+    def to_latex(self):
+        try:
+            self.evaluation.to_latex()
+        except Exception as e:
+            self.logger.info(f'Failed writing results to Latex table: {e}')
 
     def save_plot(self, expressions, name='plot.png'):
         figure_path = to_path(self.figure_dir, name)

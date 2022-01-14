@@ -1,5 +1,7 @@
 from pade.schematic import Cell
 from pade.utils import get_kwarg, num2string
+from shlib import to_path
+import os
 
 class switch(Cell):
     """
@@ -215,7 +217,7 @@ class vpulse(Cell):
         self.add_terminal("p")
         self.add_terminal("n")
         # Add properties
-        self.parameters = {'type': 'pulse', 'val0': num2string(val0), 'val1': num2string(val1), 'period': num2string(period)}
+        self.parameters = {'type': 'pulse', 'val0': num2string(val0), 'val1': num2string(val1), 'period': num2string(period), 'mag': 1}
         # Add optional properties
         if delay is not None:
             self.parameters['delay'] = num2string(delay)
@@ -242,3 +244,17 @@ class bsource(Cell):
         for key in parameters:
             self.parameters[key] = parameters[key]
 
+class diffstbprobe(Cell):
+    """
+    Differential stb probe
+    Terminals: 'in1', 'in2', 'out1', 'out2'
+    """
+    def __init__(self, instance_name, parent_cell, filepath, parameters={}):
+        # Call super init
+        super().__init__('diffstbprobe', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.add_multiple_terminals(['in1', 'in2', 'out1', 'out2'])
+        self.include_filepath = filepath
+        # Add properties
+        for key in parameters:
+            self.parameters[key] = parameters[key]

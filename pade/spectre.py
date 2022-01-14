@@ -1,3 +1,4 @@
+import imp
 from pade.analysis import Analysis, Corner, Typical
 from pade.ssh_utils import SSH_Utils
 from shlib import mkdir, ls, to_path, rm
@@ -8,22 +9,19 @@ import logging
 import yaml
 import subprocess
 from tqdm import tqdm
+from pade import fatal
 
 class Spectre(object):
     """
     For spectre simulations on remote server
     """
     def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analyses, sim_name, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], **kwargs):
-
         # Parse config file
         config_file = get_kwarg(kwargs, 'config_file','config/user_config.yaml')
         with open(config_file, 'r') as f:
             config = yaml.safe_load(f)
         self.config = config
         self.local_info = config['local_info']
-        spectre_setup = get_kwarg(kwargs, 'spectre_setup','config/spectre_setup.yaml')
-        with open(spectre_setup, 'r') as f:
-            self.spectre_options = yaml.safe_load(f)
 
         # Set command options that will append to the spectre command
         self.command_options = command_options
@@ -121,14 +119,6 @@ class Spectre(object):
                 self.netlist_string += f'{net}={value} '
             self.netlist_string += '\n'
 
-        # Spectre settings
-        for name in self.spectre_options:
-            statement = self.spectre_options[name]['statement']
-            parameters = self.spectre_options[name]['parameters']
-            self.netlist_string += name + ' ' + statement
-            for param_name in parameters:
-                self.netlist_string += f" {param_name}={parameters[param_name]}"
-            self.netlist_string += '\n'
         # Save outputs
         self.netlist_string += "save "
         for signal in self.output_selections:
@@ -200,6 +190,7 @@ class Spectre(object):
         with open(log_file, 'wb') as f:
             process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             p0 = 0
+            line_s = None
             for line in iter(process.stdout.readline, b''):
                 f.write(line)
                 line_s = line.decode('ascii')
@@ -214,6 +205,8 @@ class Spectre(object):
                     p0 = progress
                     # Close tq
             self.tq.close()
+            if line_s is None:
+                fatal('Spectre simulation did not return any output')
             status_list = line_s.split(' ')
             err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
             errors = int(status_list[err_idx])

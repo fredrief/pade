@@ -156,6 +156,32 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         """
         self.simulation = simulation
 
+    def cross(self, x_sig, edge='Both'):
+        """
+            Return the first index where self crosses x_sig
+        """
+        x = x_sig.trace if isinstance(x_sig, Signal) else x_sig
+        y = self.trace
+        # Verify that the two traces are of same length
+        if not len(self.trace) == len(x_sig):
+            raise ValueError('x and y signal must be of same length')
+        # Verify valid edge
+        if not edge.lower() in ['rising', 'falling', 'both']:
+            raise ValueError(f'Unvalid edge {edge}')
+
+        sign = lambda x: 1 if x>0 else -1
+        sign0 = sign(y[0]-x[0])
+        for i in range(1, len(y)):
+            sign1 = sign(y[i]-x[i])
+            dsign = sign1 - sign0
+            # If dsign > 0, we have a rising edge
+            if dsign > 0 and edge.lower() in ['rising', 'both']:
+                return i
+            # If dsign < 0, we have a falling edge
+            if dsign < 0 and edge.lower() in ['falling', 'both']:
+                return i
+
+
     def at(self, x_sig, x_val, name=None):
         """
             Interpolate self as function of x_sig, at x_val
