@@ -257,6 +257,11 @@ class Cell:
         else:
             return getattr(self,tname)
 
+    def get_all_terminals(self):
+        """
+        Return a list of all terminal objects
+        """
+        return list(self.terminals.values())
 
     def get_net(self, net_name):
         """
@@ -303,7 +308,7 @@ class Cell:
             net.connect([terminal])
         # If net is str, check if net exist, else create a Net with this name and connect
         elif isinstance(net, str):
-            parent = self.parent_cell if self.parent_cell else self.design
+            parent = self.parent_cell
             if net in parent.nets:
                 net = parent.get_net(net)
             else:

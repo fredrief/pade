@@ -38,7 +38,9 @@ class Test:
         # Make all directories at init
         mkdir(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir, self.html_dir, self.latex_dir, self.res_dir, self.log_dir)
 
-        self.logger = get_kwarg(kwargs, 'logger', get_logger(logf=main_logf, name=self.sim_name))
+        self.logger = get_kwarg(kwargs, 'logger')
+        if self.logger is None:
+            self.logger = get_logger(logf=main_logf, name=self.sim_name)
 
         # Init simulator
         sim = Simulator(

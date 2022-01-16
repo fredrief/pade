@@ -68,7 +68,7 @@ def num2string(val, asint=False, decimals=8, nodot=False):
     return numstring
 
 def get_kwarg(dict, key, default=None):
-    """ Returns dict[key] if exist else None """
+    """ Returns dict[key] if exist else default """
     return dict[key] if key in dict else default
 
 def get_logger(logf=None, name='cbadc'):

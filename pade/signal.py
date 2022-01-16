@@ -82,8 +82,12 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         self.passed_spec = passed_spec
 
     def __getitem__(self, item):
-        return self.__class__(self.trace[item], self.unit, f'{self.name}[{item}]',
-         analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+        try:
+            return self.__class__(self.trace[item], self.unit, f'{self.name}[{item}]',
+             analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+        except IndexError:
+            return self.__class__(np.nan, self.unit, f'{self.name}[{item}]',
+             analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
 
     def __repr__(self):
         return "{:.2f~P}".format(self.to_quantity())
@@ -180,6 +184,8 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             # If dsign < 0, we have a falling edge
             if dsign < 0 and edge.lower() in ['falling', 'both']:
                 return i
+        # If it never crossed
+        return np.nan
 
 
     def at(self, x_sig, x_val, name=None):
