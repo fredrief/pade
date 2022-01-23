@@ -3,7 +3,7 @@ from pade.psf_parser import PSFParser
 from pade.analysis import tran, dc, noise, ac, Typical
 from pade.spectre import Spectre as Simulator
 from pade.evaluation import Evaluation, Expression
-from pade.utils import get_kwarg, get_logger
+from pade.utils import get_kwarg, init_logger
 from pade import fatal
 from shlib.shlib import lsf, rm, to_path, mkdir
 import matplotlib.pyplot as plt
@@ -18,9 +18,6 @@ class Test:
         self.project_root_dir = project_root_dir
         self.design = design
         self.project_name = project_root_dir.name
-        # Output selection
-        # if self.debug:
-        #     self.output_selections = ['*'] if not self.debug_currents else ['*', '*:currents']
         self.expressions = expressions
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
@@ -176,7 +173,6 @@ class Test:
         self.run_index = get_kwarg(kwargs, 'run_index', 0)
         self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
-        self.debug_currents = kwargs['debug_currents'] if 'debug_currents' in kwargs else False
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
         # Initialize simulator
         self.mt = get_kwarg(kwargs, 'mt', 2)

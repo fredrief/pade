@@ -71,7 +71,7 @@ def get_kwarg(dict, key, default=None):
     """ Returns dict[key] if exist else default """
     return dict[key] if key in dict else default
 
-def get_logger(logf=None, name='cbadc'):
+def init_logger(logf=None, name='cbadc'):
     logger = logging.getLogger(name)
     logger.handlers = [] # To diable stdout
     logger.setLevel(logging.INFO)
