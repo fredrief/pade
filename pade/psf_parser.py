@@ -1,6 +1,5 @@
 from pade import ureg
 from pade.signal import Signal
-from pade.ssh_utils import SSH_Utils
 from pade.utils import file_exist
 from psf_utils import PSF, Quantity
 from shlib import ls, to_path, mkdir, rm

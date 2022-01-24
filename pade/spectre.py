@@ -1,6 +1,5 @@
 import imp
 from pade.analysis import Analysis, Corner, Typical
-from pade.ssh_utils import SSH_Utils
 from shlib import mkdir, ls, to_path, rm
 from pade.utils import get_kwarg, num2string, cat, writef
 import re
@@ -186,7 +185,7 @@ class Spectre(object):
         self.logger.info(f'Simulating: {corner.name}')
         log_file = to_path(self.log_dir, 'spectre_sim.log')
         # Progress bar
-        self.tq = tqdm(total=100, desc=f'{self.sim_name}', leave=False, position=self.tqdm_pos)
+        self.tq = tqdm(total=100, leave=False, position=self.tqdm_pos)
         with open(log_file, 'wb') as f:
             process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             p0 = 0
@@ -198,10 +197,11 @@ class Spectre(object):
                 progress_line = re.search('\(.* %\)', line_s)
                 if progress_line:
                     progress = float(line_s.split(' %')[0].split('(')[1])
-                    analyses = line_s.split(':')[0].strip()
-                    if not analyses in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
+                    analysis = line_s.split(':')[0].strip()
+                    if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
                         continue
                     self.tq.update(progress-p0)
+                    self.tq.set_description(f'{analysis} {self.sim_name}')
                     p0 = progress
                     # Close tq
             self.tq.close()
