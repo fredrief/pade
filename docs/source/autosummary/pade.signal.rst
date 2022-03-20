@@ -12,6 +12,8 @@
    .. rubric:: Functions
 
    .. autosummary::
+      :toctree:
+      :template: function_template.rst
    
       angle
       conjugate
@@ -29,6 +31,8 @@
    .. rubric:: Classes
 
    .. autosummary::
+      :toctree:
+      :template: class_template.rst
    
       Signal
    

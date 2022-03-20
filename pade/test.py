@@ -1,3 +1,4 @@
+from distutils.command.config import config
 from typing import List
 from pade.psf_parser import PSFParser
 from pade.analysis import tran, dc, noise, ac, Typical
@@ -14,15 +15,15 @@ class Test:
     Run a single test
     """
     def __init__(self, project_root_dir, design, analyses, expressions=None, **kwargs):
-        self.parse_kwargs(**kwargs)
         self.project_root_dir = project_root_dir
         self.design = design
         self.project_name = project_root_dir.name
         self.expressions = expressions
+        self.parse_kwargs(**kwargs)
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
         # keep all paths and directories at the same place
-        self.sim_data_dir = to_path(self.project_root_dir, f"{self.project_name}_sim_data", self.dir_name)
+        self.sim_data_dir = to_path(self.project_root_dir, f"sim_data", self.dir_name)
         self.log_dir = to_path(self.sim_data_dir,"logs")
         self.netlist_dir = to_path(self.sim_data_dir,"netlists")
         self.res_dir = to_path(self.sim_data_dir,"results")
@@ -52,7 +53,10 @@ class Test:
             output_selections=self.output_selections,
             corner=self.corner,
             global_nets=self.global_nets,
-            tqdm_pos=self.tqdm_pos)
+            tqdm_pos=self.tqdm_pos,
+            config_file=self.config_file,
+            )
+
         # Eventually set mcoptions in simulator
         if self.mcoptions is not None:
             sim.set_mc_settings(self.mcoptions)
@@ -163,7 +167,7 @@ class Test:
         Clean up all directories
         """
         # Logs
-        rm(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir, self.res_dir)
+        rm(self.sim_data_dir)
 
 
     def parse_kwargs(self, **kwargs):
@@ -177,7 +181,7 @@ class Test:
         # Initialize simulator
         self.mt = get_kwarg(kwargs, 'mt', 2)
         # command options
-        self.command_options = ['-f', 'psfascii', '++aps', f'+mt={self.mt}', '-log']
+        self.command_options = ['-f', 'psfascii', '+preset=mx', f'+mt={self.mt}', '-log']
         if 'command_options' in kwargs:
             for opt in kwargs['command_options']:
                 self.command_options.append(opt)
@@ -185,4 +189,4 @@ class Test:
         # Add all signal names from expressions
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
-
+        self.config_file = get_kwarg(kwargs, 'config_file', to_path(self.project_root_dir, 'config', 'user_config.yaml'))

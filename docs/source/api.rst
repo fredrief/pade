@@ -4,6 +4,8 @@ API
 .. autosummary::
    :toctree: autosummary
    :recursive:
+   :template: module_template.rst
+
 
    pade.analysis
    pade.evaluation

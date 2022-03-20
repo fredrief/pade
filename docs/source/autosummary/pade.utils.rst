@@ -12,6 +12,8 @@
    .. rubric:: Functions
 
    .. autosummary::
+      :toctree:
+      :template: function_template.rst
    
       cat
       file_exist

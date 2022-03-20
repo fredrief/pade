@@ -16,6 +16,8 @@
    .. rubric:: Classes
 
    .. autosummary::
+      :toctree:
+      :template: class_template.rst
    
       PSFParser
    

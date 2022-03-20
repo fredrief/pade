@@ -65,6 +65,8 @@ class Cell:
                 string_clean_lines += clean_line
 
         for line in string_clean_lines.splitlines():
+            if line.startswith('//'):
+                continue
             #Add parameters
             if (line.startswith('ends') or line == '\n' or line == ''):
                 pass
@@ -216,7 +218,7 @@ class Cell:
         params = self.parameters if self.parameters is not None else []
         for p in params:
             if p is not None:
-                s += "{}={} ".format(p, params[p])
+                s += "{}={} ".format(p, num2string(params[p]))
         s += "\n"
         return s
 
