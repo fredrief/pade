@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 class Test:
     """
-    Equovalent to Cadence Explorer
+    Equivalent to Cadence Explorer
     Run a single test
     """
     def __init__(self, project_root_dir, design, analyses, expressions=None, **kwargs):
@@ -38,7 +38,7 @@ class Test:
 
         self.logger = get_kwarg(kwargs, 'logger')
         if self.logger is None:
-            self.logger = get_logger(logf=main_logf, name=self.sim_name)
+            self.logger = init_logger(logf=main_logf, name=self.sim_name)
 
         # Init simulator
         sim = Simulator(
