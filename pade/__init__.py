@@ -1,6 +1,6 @@
 # Units
 from pint import UnitRegistry
-ureg = UnitRegistry()
+ureg = UnitRegistry(case_sensitive=True)
 Q_ = ureg.Quantity
 
 # Import Inform for all modules

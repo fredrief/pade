@@ -232,11 +232,10 @@ class Cell:
     def add_terminal(self, name):
         """
         Add terminal <name> if it does not already exist
-        Added both as an attribute and as a member of list of terminals
+        Added as a member of list of terminals
         """
         if not hasattr(self,name) and isinstance(name, str):
             terminal = Terminal(name, self)
-            setattr(self, name, terminal)
             self.terminals[name] = terminal
         else:
             raise ValueError('Terminal {} already exist/was not set for another reason'.format(name))
@@ -254,10 +253,10 @@ class Cell:
         """
         if not isinstance(tname, str):
             raise ValueError('Terminal name must be a string')
-        elif not hasattr(self, tname):
+        elif not tname in self.terminals:
             raise ValueError('No terminal named {} exist in cell {}'.format(tname, self.instance_name))
         else:
-            return getattr(self,tname)
+            return self.terminals[tname]
 
     def get_all_terminals(self):
         """
