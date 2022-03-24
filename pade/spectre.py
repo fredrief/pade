@@ -15,12 +15,6 @@ class Spectre(object):
     For spectre simulations on remote server
     """
     def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analyses, sim_name, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], **kwargs):
-        # Parse config file
-        config_file = get_kwarg(kwargs, 'config_file','config/user_config.yaml')
-        with open(config_file, 'r') as f:
-            config = yaml.safe_load(f)
-        self.config = config
-        self.local_info = config['local_info']
 
         # Set command options that will append to the spectre command
         self.command_options = command_options
@@ -40,8 +34,8 @@ class Spectre(object):
         self.lines_to_append_netlist = []
 
         self.global_nets = get_kwarg(kwargs, 'global_nets', '0')
-        # corner:
-        self.corner = get_kwarg(kwargs, 'corner', Typical())
+
+        self.corner = get_kwarg(kwargs, 'corner')
         self.sim_name=sim_name
         self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', 0)
 
@@ -102,7 +96,7 @@ class Spectre(object):
         self.netlist_string += "// Design cell name: {}\n".format(self.design.cell_name)
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
-        self.netlist_string += 'include "/home/fredrief/projects/cb_tapeout_1/virtuoso/corners.scs"\n'
+        self.netlist_string += f'[CORNERINFO]'
 
         # Schematic
         self.netlist_string += self.design.get_netlist_string()
@@ -142,9 +136,10 @@ class Spectre(object):
         """
         # Always re-initialize netlist string
         self.init_netlist()
-        # Append temperature info
-        self.netlist_string += f'TempOp options temp={corner.temp}\n'
-        return self.netlist_string.replace('[MODELFILE]', corner.model_file)
+        # Insert corner specific info
+        corner_string = f'include "{self.corner.model_file}"\n'
+        corner_string += f'TempOp options temp={corner.temp}\n'
+        return self.netlist_string.replace('[CORNERINFO]', corner_string)
 
     def write_netlist(self, corner):
         """
@@ -175,8 +170,7 @@ class Spectre(object):
 
         self.logger.info('Starting spectre simulation')
         # Spectre commands
-        popen_cmd = f"source {self.local_info['spectre_setup_script']} ; " + \
-            f"spectre {netlist_path} " + \
+        popen_cmd = f"tcsh spectre {netlist_path} " + \
             f"-raw {simulation_raw_dir} "
         for cmd in self.command_options:
             popen_cmd += f"{cmd} "

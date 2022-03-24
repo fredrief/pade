@@ -21,30 +21,15 @@ class Typical(Corner):
     """
     Default typical corner
     """
-    def __init__(self):
-        super().__init__('tt_pre', 27, name='Typical')
-
-class Fast(Corner):
-    """
-    Default fast corner
-    """
-    def __init__(self):
-        super().__init__('ff_pre', 140, name='Fast')
-
-class Slow(Corner):
-    """
-    Default slow corner
-    """
-    def __init__(self):
-        super().__init__('ss_pre', -40, name='Slow')
-
+    def __init__(self, model_file):
+        super().__init__(model_file, 27, name='Typical')
 
 class Mc(Corner):
     """
     Default montecarlo corner
     """
-    def __init__(self):
-        super().__init__('mc_pre', 27, name='mc')
+    def __init__(self, model_file):
+        super().__init__(model_file, 27, name='mc')
 
 class Analysis(object):
     """

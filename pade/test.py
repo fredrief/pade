@@ -171,7 +171,7 @@ class Test:
 
 
     def parse_kwargs(self, **kwargs):
-        self.corner = get_kwarg(kwargs, 'corner', Typical())
+        self.corner = get_kwarg(kwargs, 'corner')
         self.sim_name = get_kwarg(kwargs, 'sim_name', self.corner.name)
         self.dir_name = get_kwarg(kwargs, 'dir_name', self.sim_name)
         self.run_index = get_kwarg(kwargs, 'run_index', 0)
@@ -190,3 +190,5 @@ class Test:
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
         self.config_file = get_kwarg(kwargs, 'config_file', to_path(self.project_root_dir, 'config', 'user_config.yaml'))
+
+        # Spectre start-up commands
