@@ -5,11 +5,11 @@ class Corner:
     """
     For corner setup
     """
-    def __init__(self, model_file, temp=27, name=None):
+    def __init__(self, model_file, name, temp=27, append=[]):
         self.model_file = model_file
         self.temp = temp
-        # Use the model_file as default corner name
-        self.name = name if name else model_file
+        self.name = name
+        self.append = append
 
     def __str__(self) -> str:
         return self.name
@@ -17,12 +17,22 @@ class Corner:
     def __repr__(self) -> str:
         return self.name
 
+    def get_string(self) -> str:
+        corner_string = ""
+        # corner_string += "paramOp options redefinedparams=ignore\n"
+        corner_string += f'include {self.model_file}\n'
+        corner_string += f'TempOp options temp={self.temp}\n'
+        for s in self.append:
+            corner_string += f"{s}\n"
+        return corner_string
+
+
 class Typical(Corner):
     """
     Default typical corner
     """
     def __init__(self, model_file):
-        super().__init__(model_file, 27, name='Typical')
+        super().__init__(model_file, name='Typical', temp=27)
 
 class Mc(Corner):
     """
@@ -31,7 +41,7 @@ class Mc(Corner):
     def __init__(self, model_file):
         super().__init__(model_file, 27, name='mc')
 
-class Analysis(object):
+class Analysis:
     """
     Abstract analysis class
     An analysis is initialized by a name and a dictionary of paramaters.
@@ -65,7 +75,8 @@ class tran(Analysis):
         }
         p = default_params
         for param in parameters:
-            p[param] = parameters[param]
+            if not parameters[param] is None:
+                p[param] = parameters[param]
         super().__init__(name, type='tran', parameters=p)
 
 class dc(Analysis):

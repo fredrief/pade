@@ -6,12 +6,32 @@ import logging
 from pade import info, display, warn, error, fatal
 from shlib.shlib import to_path, mkdir
 
+def append_dict(d1, d2):
+    """
+    Append d2 to d1
+    """
+    for key, value in d2.items():
+        # Add key if it does not exist
+        if not key in d1:
+            d1[key] = value
+        # If value is list. append
+        elif isinstance(value, list):
+            d1[key] += value
+        # If value is dict, append
+        elif isinstance(value, dict):
+            append_dict(d1[key], value)
+        # If value is not list or dict, replace existing value
+        else:
+            d1[key] = value
 
+    return d1
 
 def num2string(val, asint=False, decimals=8, nodot=False):
     # Some special cases
     if isinstance(val, str):
         return val
+    elif val is None:
+        return None
     if val == 0:
         return '0'
     # Find base and prefix
@@ -35,6 +55,10 @@ def num2string(val, asint=False, decimals=8, nodot=False):
         prefix = 'f'
     elif exp == -18:
         prefix = 'a'
+    elif exp == -21:
+        prefix = 'z'
+    elif exp == -24:
+        prefix = 'y'
     elif exp == 3:
         prefix = 'k'
     elif exp == 6:
@@ -45,6 +69,10 @@ def num2string(val, asint=False, decimals=8, nodot=False):
         prefix = 'T'
     elif exp == 15:
         prefix = 'P'
+    elif exp == 18:
+        prefix = 'E'
+    elif exp == 21:
+        prefix = 'Z'
 
     # Format
     numstring = ""
@@ -53,12 +81,15 @@ def num2string(val, asint=False, decimals=8, nodot=False):
     elif nodot:
         val0 = int(val)
         val1 = val-val0
-        val1 = int(val1*10**(decimals))
+        val1 = int(np.ceil(val1*10**(decimals)))
         numstring = f'{val0}{prefix}'
         if val1 != 0:
             if prefix == '':
                 numstring += 'x'
-            numstring += f'{val1}'
+            val1str = str(val1)
+            while len(val1str) < decimals:
+                val1str = '0' + val1str
+            numstring += val1str
     else:
         value_str = str(val)
         base_len = len(value_str.split('.')[0])

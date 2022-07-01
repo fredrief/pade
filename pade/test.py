@@ -54,7 +54,6 @@ class Test:
             corner=self.corner,
             global_nets=self.global_nets,
             tqdm_pos=self.tqdm_pos,
-            config_file=self.config_file,
             )
 
         # Eventually set mcoptions in simulator
@@ -167,7 +166,10 @@ class Test:
         Clean up all directories
         """
         # Logs
-        rm(self.sim_data_dir)
+        try:
+            rm(self.sim_data_dir)
+        except:
+            pass
 
 
     def parse_kwargs(self, **kwargs):
@@ -178,10 +180,9 @@ class Test:
         self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
-        # Initialize simulator
-        self.mt = get_kwarg(kwargs, 'mt', 2)
         # command options
-        self.command_options = ['-f', 'psfascii', '+preset=mx', f'+mt={self.mt}', '-log']
+        self.command_options = [
+            '-f', 'psfascii', '-log']
         if 'command_options' in kwargs:
             for opt in kwargs['command_options']:
                 self.command_options.append(opt)
@@ -189,6 +190,3 @@ class Test:
         # Add all signal names from expressions
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
-        self.config_file = get_kwarg(kwargs, 'config_file', to_path(self.project_root_dir, 'config', 'user_config.yaml'))
-
-        # Spectre start-up commands

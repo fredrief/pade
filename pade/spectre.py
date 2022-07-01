@@ -96,7 +96,7 @@ class Spectre(object):
         self.netlist_string += "// Design cell name: {}\n".format(self.design.cell_name)
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
-        self.netlist_string += f'[CORNERINFO]'
+        self.netlist_string += self.corner.get_string()
 
         # Schematic
         self.netlist_string += self.design.get_netlist_string()
@@ -136,10 +136,7 @@ class Spectre(object):
         """
         # Always re-initialize netlist string
         self.init_netlist()
-        # Insert corner specific info
-        corner_string = f'include "{self.corner.model_file}"\n'
-        corner_string += f'TempOp options temp={corner.temp}\n'
-        return self.netlist_string.replace('[CORNERINFO]', corner_string)
+        return self.netlist_string
 
     def write_netlist(self, corner):
         """
@@ -168,12 +165,13 @@ class Spectre(object):
         # Write netlist to file
         self.write_netlist(corner)
 
-        self.logger.info('Starting spectre simulation')
         # Spectre commands
-        popen_cmd = f"tcsh spectre {netlist_path} " + \
+        popen_cmd = f"spectre {netlist_path} " + \
             f"-raw {simulation_raw_dir} "
         for cmd in self.command_options:
             popen_cmd += f"{cmd} "
+
+        self.logger.info(f'Starting spectre simulation.\nCommand: {popen_cmd}')
 
         # Run sim
         self.logger.info(f'Simulating: {corner.name}')
@@ -201,9 +199,12 @@ class Spectre(object):
             self.tq.close()
             if line_s is None:
                 fatal('Spectre simulation did not return any output')
-            status_list = line_s.split(' ')
-            err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
-            errors = int(status_list[err_idx])
+            try:
+                status_list = line_s.split(' ')
+                err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
+                errors = int(status_list[err_idx])
+            except:
+                errors = True
             if errors:
                 raise SpectreError(log_file)
 

@@ -54,7 +54,10 @@ class PSFParser(object):
                     trace = np.array([signal.ordinate.real + 1j*signal.ordinate.imag])
                 else:
                     trace = signal.ordinate
-                unit = getattr(ureg, signal.units.replace('sqrt(Hz)', 'hertz**0.5')) if signal.units else None
+                try:
+                    unit = getattr(ureg, signal.units.replace('sqrt(Hz)', 'hertz**0.5').lower()) if signal.units else None
+                except:
+                    unit = None
                 q = ureg.Quantity(trace, unit)
                 s = Signal(trace, q.units, name=signal.name, analysis=analysis_name, simulation=self.sim_name, sweep=False)
                 self.signals[f'{self.sim_name}:{analysis_name}:{s.name}'] = s

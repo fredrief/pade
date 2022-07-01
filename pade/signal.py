@@ -39,6 +39,12 @@ def mean(sig):
     "Implementation of np.mean for Signal objects"
     return Signal(np.mean(sig.trace), sig.unit, f'R({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
 
+@implements(np.sum)
+def sum(sig):
+    "Implementation of np.sum for Signal objects"
+    return Signal(np.sum(sig.trace), sig.unit, f'R({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
+
+
 @implements(np.angle)
 def angle(sig):
     "Implementation of np.angle for Signal objects"

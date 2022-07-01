@@ -125,6 +125,39 @@ class idc(Cell):
         # Add properties
         self.parameters = {'dc': num2string(idc), 'type': 'dc'}
 
+class vsin(Cell):
+    """
+    DC Voltage source
+    Terminals: p, n
+    """
+    def __init__(self, instance_name, parent_cell, vdc, ampl, freq, **kwargs):
+        # Call super init
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.add_terminal("p")
+        self.add_terminal("n")
+        # Add properties
+        self.parameters = {'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
+        for key in kwargs:
+            self.parameters[key] = kwargs[key]
+
+class isin(Cell):
+    """
+    AC Current source
+    Terminals: p, n
+    """
+    def __init__(self, instance_name, parent_cell, idc, ampl, freq, **kwargs):
+        # Call super init
+        super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.add_terminal("p")
+        self.add_terminal("n")
+        # Add properties
+        self.parameters = {'type': 'sine', 'sinedc': num2string(idc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
+        for key in kwargs:
+            self.parameters[key] = kwargs[key]
+
+
 class ipulse(Cell):
     """
     Current pulse source
@@ -157,21 +190,6 @@ class vdc(Cell):
         for key in kwargs:
             self.parameters[key] = kwargs[key]
 
-class vsin(Cell):
-    """
-    DC Voltage source
-    Terminals: p, n
-    """
-    def __init__(self, instance_name, parent_cell, vdc, ampl, freq, **kwargs):
-        # Call super init
-        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
-        # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
-        # Add properties
-        self.parameters = {'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
-        for key in kwargs:
-            self.parameters[key] = kwargs[key]
 
 class vccs(Cell):
     """

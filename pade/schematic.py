@@ -1,5 +1,98 @@
-from pade.utils import num2string, get_kwarg
+from pade.utils import num2string, get_kwarg, append_dict
 import re
+import json
+
+class Terminal:
+    """
+    Terminal
+    A Terminal is owned by a Cell and connected to a net
+    It contains a reference to its cell.
+    It knows in which order it appears in the netlist definition.
+
+    """
+    def __init__(self, name: str, cell):
+        self.name = name
+        self.net = None
+        self.cell = cell
+        # Index of self in definition of cell
+        self.index = len(cell.terminals) + 1
+
+    def __str__(self):
+        s  = f"Terminal {self.name} of cell {self.cell.instance_name}\n"
+        s += "Connected to net: {}\n".format(self.net.name if self.net else "None")
+        return s
+
+    def __repr__(self):
+        s  = "Terminal {} of cell {}\n".format(self.name, self.cell.instance_name)
+        s += "Connected to net: {}\n".format(self.net.name if self.net else "None")
+        return s
+
+    def get_net(self):
+        return self.net
+
+    def connect(self, net):
+        """
+        Connect terminal to a net
+
+        Arguments
+            net: Net or str
+        """
+        # If net is Net, connect directly
+        if isinstance(net, Net):
+            self.net=net
+            net.connect([self])
+        # If net is str, check if net exist, else create a Net with this name and connect
+        elif isinstance(net, str):
+            parent = self.cell.parent_cell
+            if parent.has_net(net):
+                net = parent.get_net(net)
+            else:
+                net = Net(net, self.design)
+            self.net=net
+            net.connect([self])
+        else:
+            raise ValueError('Could not connect. {} is not a Net or a string'.format(net))
+
+class Net:
+    """
+    Net
+    A net is owned by a design/cell and connected to one or more terminals
+    Contains reference to its design and connected terminals
+    """
+    def __init__(self, name, cell):
+        """
+        Arguments:
+            name: String
+            cell: Cell
+        """
+        self.name = name
+        self.cell = cell
+        cell.add_net(self)
+        self.connections = []
+
+    def __str__(self):
+        s  = f"Net {self.name} in Cell {self.cell.instance_name}\nConnected to:\n"
+        for c in self.connections:
+            s += "- terminal {} of cell {}\n".format(c.name, c.cell.instance_name)
+        return s
+
+    def __repr__(self):
+        s  = f"Net {self.name} in Cell {self.cell.instance_name}\nConnected to:\n"
+        for c in self.connections:
+            s += "- terminal {} of cell {}\n".format(c.name, c.cell.instance_name)
+        return s
+
+    def connect(self, terminals):
+        """
+        Connect net to a list of terminals
+        """
+        for t in terminals:
+            if isinstance(t, Terminal):
+                self.connections.append(t)
+            else:
+                raise ValueError('{} is not a Terminal'.format(t))
+
+
 
 class Cell:
     """
@@ -46,6 +139,9 @@ class Cell:
         # Include filepath (additional filepath to include)
         self.include_filepath = ""
 
+    def __repr__(self) -> str:
+        return f"Cell {self.instance_name}, type {self.cell_name}\n"
+
 
     def extract_data_from_file(self, file, **kwargs):
         """
@@ -54,9 +150,9 @@ class Cell:
 
         """
         # Clean file by removing new line characters
-        with open(file, "r") as raw:
+        with open(file, "r") as raw_f:
             string_clean_lines = ""
-            for line in raw:
+            for line in raw_f.readlines():
                 clean_line = line.rstrip().lstrip()
                 if(clean_line.endswith('\\')):
                     clean_line = clean_line.rstrip('\\')
@@ -89,7 +185,9 @@ class Cell:
                 if not self.cell_name == line.split()[1]:
                     raise ValueError('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
                 for terminal in line.split()[2:]:
-                    self.add_terminal(terminal)
+                    t = self.add_terminal(terminal)
+                    # Add terminal ass attribute
+                    setattr(self, t.name, t)
             # Define subcells in subckt
             else:
                 sc_connected_nets   = []
@@ -102,13 +200,13 @@ class Cell:
                         break
                 sc_cell_name        = line.split()[sc_first_param_location-1]
                 sc_instance_name    = line.split()[0]
-                for i, nets in enumerate(line.split()[1:sc_first_param_location-1]):
-                    sc_connected_nets.append(nets)
+                for i, net in enumerate(line.split()[1:sc_first_param_location-1]):
+                    sc_connected_nets.append(net.strip("(").strip(")"))
                     sc_terminals.append(str(i))
                 for i, sc_param in enumerate(line.split()[sc_first_param_location:]):
                     sc_param_key, sc_param_value = sc_param.split('=')
                     sc_param_dict[sc_param_key] = sc_param_value
-                exclude_list = kwargs['exclude_list'] if 'config_file' in kwargs else []
+                exclude_list = kwargs.get('exclude_list', [])
                 skip_subcell = 0
                 for exclusion in exclude_list:
                     if(exclusion in line):
@@ -142,7 +240,7 @@ class Cell:
 
     def add_subcell(self, cell):
         """
-        Add subcell
+        Add subcell both in dict and as attribute
         """
         self.subcells[cell.instance_name] = cell
 
@@ -167,6 +265,149 @@ class Cell:
         if self.ahdl_filepath != "":
             s += f'ahdl_include "{self.ahdl_filepath}"\n'
         return s
+
+    def get_sorted_terminal_list(self):
+        """
+        Return a list of terminals, sorted by index
+        """
+        t_list = self.terminals.values()
+        return sorted(t_list, key=lambda t: t.index)
+
+    def add_terminal(self, name):
+        """
+        Add terminal <name> if it does not already exist
+        Added as a member of list of terminals
+        """
+        if not name in self.terminals and isinstance(name, str):
+            terminal = Terminal(name, self)
+            self.terminals[name] = terminal
+            return terminal
+        else:
+            raise ValueError('Terminal {} already exist/was not set for another reason'.format(name))
+
+    def add_multiple_terminals(self, terminals):
+        """
+        Add multiple terminals
+        """
+        t_list = []
+        for t in terminals:
+            t_list.append(self.add_terminal(t))
+        return t_list
+
+    def get_terminal(self, terminal):
+        """
+        Returns object Terminal if it exists in cell
+        """
+        if not isinstance(terminal, str):
+            raise ValueError('Terminal name must be a string')
+        elif not terminal in self.terminals:
+            raise ValueError('No terminal named {} exist in cell {}'.format(terminal, self.instance_name))
+        else:
+            return self.terminals[terminal]
+
+    def get_all_terminals(self):
+        """
+        Return a list of all terminal objects
+        """
+        return list(self.terminals.values())
+
+    def get_net(self, net_name):
+        """
+        Return net of name net_name if exist else None
+        """
+        if net_name in self.nets:
+            return self.nets[net_name]
+        else:
+            return None
+
+    def add_net(self, net):
+        """
+        Add net to cell
+        Arguments:
+            net: Net
+        """
+        # If net is Net, connect directly
+        if isinstance(net, Net):
+            self.nets[net.name] = net
+        # If net is str, assume create a Net with this name and connect
+        elif isinstance(net, str):
+            net = Net(net, self)
+            self.nets[net.name] = net
+        else:
+            raise ValueError('Could not add ned. Must be a Net or a string')
+        return net
+
+
+    def connect(self, terminal, net):
+        """
+        Connect terminal to a net
+
+        Arguments
+            tname: Terminal or str
+            net: Net or str
+        """
+        # Verify that terminal is member of cell and get Terminal object
+        if isinstance(terminal, str):
+            terminal = self.get_terminal(terminal)
+        elif not isinstance(terminal, Terminal):
+            raise ValueError('Terminal must be a Terminal object or a string with terminal name')
+        elif not terminal.name in self.terminals:
+            raise ValueError(f'Could not connect because {terminal.name} does not exist in {self}')
+
+        # If net is Net, connect directly
+        if isinstance(net, Net):
+            terminal.connect(net)
+        # If net is str, check if net exist, else create a Net with this name and connect
+        elif isinstance(net, str):
+            parent = self.parent_cell
+            if net in parent.nets:
+                net = parent.get_net(net)
+            else:
+                net = Net(net, parent)
+            terminal.connect(net)
+        # If net is terminal, create a net with the same name as the terminal and connect
+        elif isinstance(net, Terminal):
+            t2 = net
+            netname = t2.name
+            parent = self.parent_cell
+            if netname in parent.nets:
+                net = parent.get_net(netname)
+            else:
+                net = Net(netname, parent)
+            terminal.connect(net)
+        else:
+            raise ValueError(f'Could not connect. {net} is not a Net, string or a Terminal')
+
+    def quick_connect(self, terminals, nets):
+        """
+        Connect list of terminals to a list of nets
+        Arguments
+            terminals: [str] or [Terminal]
+                Array of terminal names
+            nets: [str] or [Net] or [Terminal]
+                Array of terminals
+        """
+        # Validate
+        if not len(terminals) == len(nets):
+            raise ValueError(f'Number of terminals ({len(terminals)}) is not equal to number of nets ({len(nets)})')
+        for i in range(0, len(terminals)):
+            self.connect(terminals[i], nets[i])
+
+    def set_parameter(self, name, value):
+        """
+        Set value of parameter 'name' to 'value'
+        """
+        self.parameters[name] = num2string(value)
+
+    def get_subckts(self):
+        """
+        Returns a ordered list of all unique subckts in Cell
+        """
+        subckts = []
+        for cell_name in self.subcells:
+            cell = self.subcells[cell_name]
+            subckts = cell.append_subckt_list(subckts)
+        return subckts
 
     def get_subckt_string(self):
         """
@@ -222,123 +463,303 @@ class Cell:
         s += "\n"
         return s
 
-    def get_sorted_terminal_list(self):
-        """
-        Return a list of terminals, sorted by index
-        """
-        t_list = self.terminals.values()
-        return sorted(t_list, key=lambda t: t.index)
 
-    def add_terminal(self, name):
+    def get_terminal_from_net(self, net):
         """
-        Add terminal <name> if it does not already exist
-        Added as a member of list of terminals
+        Return the terminal of self that is connected to netname
         """
-        if not hasattr(self,name) and isinstance(name, str):
-            terminal = Terminal(name, self)
-            self.terminals[name] = terminal
+        if isinstance(net, str):
+            net = self.parent_cell.get_net(net)
+        elif isinstance(net, Net):
+            pass
         else:
-            raise ValueError('Terminal {} already exist/was not set for another reason'.format(name))
+            raise ValueError(f'{net} is not a Net')
+        for t in self.terminals.values():
+            if t.net == net:
+                return t
 
-    def add_multiple_terminals(self, terminals):
-        """
-        Add multiple terminals
-        """
-        for t in terminals:
-            self.add_terminal(t)
 
-    def get_terminal(self, tname):
+class LayoutCell(Cell):
+    """
+    Extends Cell with functionality for generating Layout
+    """
+    def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
+        super().__init__(cell_name, instance_name, parent_cell, **kwargs)
+        # Definition for json object file
+        self.cell_definition = {
+            "name": self.cell_name,
+            "class": "Layout::LayoutDigitalCell",
+        }
+
+        # Parameters for Spice netlist file
+        self.layout_parameters = kwargs.get('layout_parameters', {})
+
+    def add_layout_parameter(self, key, value):
+        self.layout_parameters[key] = value
+
+    def _get_lay_cic_spice_subckt_string(self):
         """
-        Returns object Terminal if it exists in cell
+        Return subcircuit definition for cic spice layout files
         """
-        if not isinstance(tname, str):
-            raise ValueError('Terminal name must be a string')
-        elif not tname in self.terminals:
-            raise ValueError('No terminal named {} exist in cell {}'.format(tname, self.instance_name))
+        s = f".SUBCKT {self.cell_name}"
+        # TERMINALS
+        for t in self.get_sorted_terminal_list():
+            s += f' {t.name}'
+        s += "\n"
+        # SUBCELLS
+        for key in self.subcells:
+            c = self.subcells[key]
+            s += f"{c._get_lay_cic_spice_instance_string()}"
+        # END
+        s += f".ENDS {self.cell_name}\n\n"
+        return s
+
+    def _get_lay_cic_spice_instance_string(self):
+        """
+        Return instance string for cic spice layout files
+        """
+        # All terminals of cell must be connected to nets before instance string can be generated
+        if any([t.net is None for t in self.terminals.values()]):
+            unconnected_terminals = []
+            for t in self.terminals.values():
+                if t.net is None:
+                    unconnected_terminals.append(t.name)
+            raise RuntimeError(f'Cell {self.instance_name} has unconnected terminals: {unconnected_terminals}')
+        s  = f"{self.instance_name}"
+        t_list = self.get_sorted_terminal_list()
+        for t in t_list:
+            s += f" {t.net.name}"
+        s += " {} ".format(self.cell_name)
+
+        for p in self.layout_parameters:
+            if self.layout_parameters[p] is not None:
+                s += "{}={} ".format(p, num2string(self.layout_parameters[p]))
+        s += "\n"
+        return s
+
+    def get_layout_cic_spice(self):
+        netlist = ""
+        # First append netlist from all subckts
+        subckts = self.get_subckts()
+        for cell in subckts:
+            if isinstance(cell, LayoutCell):
+                netlist += cell._get_lay_cic_spice_subckt_string()
+
+        # Then append self
+        netlist += self._get_lay_cic_spice_subckt_string()
+        return netlist
+
+
+    def write_object_definition_file(self, filename, header={}, include_json_list=[]):
+        self.object_definition_dict = {}
+        self.object_definition_dict['header'] = header
+        self.object_definition_dict['cells'] = []
+
+        # json files to include
+        cell_name_list = [] # List to keep track of cells in dict
+        for json_file in include_json_list:
+            with open(json_file, 'r') as f:
+                d = json.load(f)
+                for cell in d['cells']:
+                    self.object_definition_dict['cells'].append(cell)
+                    if 'name' in cell:
+                        cell_name_list.append(cell['name'])
+
+        # Append cell definition of all subcells
+        subckts = self.get_subckts()
+        for cell in subckts:
+            # Do not add cell if already in dict
+            if isinstance(cell, LayoutCell) and not cell.cell_name in cell_name_list:
+                self.object_definition_dict['cells'].append(cell.cell_definition)
+                cell_name_list.append(cell.cell_name)
+
+        # Then append self
+        self.object_definition_dict['cells'].append(self.cell_definition)
+
+        with open(filename, 'w') as f:
+            json.dump(self.object_definition_dict, f)
+
+    def write_layout_cic_spice(self, filename, append_spi_file=None):
+        netlist = self.get_layout_cic_spice()
+        if append_spi_file:
+            with open(append_spi_file, 'r') as fi:
+                append_netl = fi.read()
+                netlist += append_netl
+
+        with open(filename, 'w') as f:
+            f.write(netlist)
+
+    def set_properties(self, properties):
+        """
+        Set layout properties to object definition
+        """
+        for key, value in properties.items():
+            self.cell_definition[key] = value
+
+    def has_property(self, p):
+        return p in self.cell_definition
+
+    def append_cell_dict(self, d):
+        self.cell_definition = append_dict(self.cell_definition, d)
+
+    def _get_port_name(self, port):
+        """
+        Helper function to get port_name from port to handle different types
+        """
+        if isinstance(port, Terminal):
+            port_name = port.name
+        elif isinstance(port, str):
+            port_name = port
         else:
-            return self.terminals[tname]
+            raise ValueError(f'Invalid port: {port}, must be string or Terminal')
+        return port_name
 
-    def get_all_terminals(self):
+    def _get_net_name(self, net):
         """
-        Return a list of all terminal objects
+        Helper function to get net_name from net to handle different types
         """
-        return list(self.terminals.values())
-
-    def get_net(self, net_name):
-        """
-        Return net of name net_name if exist else None
-        """
-        if net_name in self.nets:
-            return self.nets[net_name]
-        else:
-            return None
-
-    def add_net(self, net):
-        """
-        Add net to cell
-        Arguments:
-            net: Net
-        """
-        # If net is Net, connect directly
         if isinstance(net, Net):
-            self.nets[net.name] = net
-        # If net is str, assume create a Net with this name and connect
+            net_name = net.name
         elif isinstance(net, str):
-            net = Net(net, self)
-            self.nets[net.name] = net
+            net_name = net
+        elif isinstance(net, Terminal):
+            net_name = net.name
+            if not net_name in self.nets:
+                raise ValueError(f'Net: {net}, does not exist in {self}')
         else:
-            raise ValueError('Could not add ned. Must be a Net or a string')
+            raise ValueError(f'Invalid net: {net}, must be string, Net Terminal')
+        return net_name
 
-
-    def connect(self, tname, net):
+    def add_port_on_rect(self, port, layer_name, rect=None):
         """
-        Connect terminal to a net
-
-        Arguments
-            tname: str
-            net: Net or str
+        Add port on rect after route
+        Also add terminal
         """
-        # Verify that terminal is member of cell and get Terminal object
-        if not isinstance(tname, str):
-            raise ValueError('Terminal name must be a string')
-        terminal = self.get_terminal(tname)
-
-        # If net is Net, connect directly
-        if isinstance(net, Net):
-            terminal.net=net
-            net.connect([terminal])
-        # If net is str, check if net exist, else create a Net with this name and connect
-        elif isinstance(net, str):
-            parent = self.parent_cell
-            if net in parent.nets:
-                net = parent.get_net(net)
-            else:
-                net = Net(net, parent)
-            terminal.net=net
-            net.connect([terminal])
+        port_name = self._get_port_name(port)
+        # Add port as terminal if not exist
+        if not port_name in self.terminals:
+            terminal = self.add_terminal(port_name)
         else:
-            raise ValueError('Could not connect. {} is not a Net or a string'.format(net))
+            terminal = self.get_terminal(port_name)
+        # Build port dict
+        port_dict = {
+            "afterRoute": {
+                "addPortOnRects": [[
+                    port_name,
+                    layer_name,
+                ]]
+            }
+        }
+        if rect is not None:
+            port_dict["afterRoute"]["addPortOnRects"][0].append(self.get_hierarchy_string(rect))
 
-    def quick_connect(self, terminals, nets):
-        """
-        Connect list of terminals to a list of nets
-        Arguments
-            terminals: [str]
-                Array of terminal names
-            nets: [str] or [Terminal]
-                Array of terminals
-        """
-        # Validate
-        if not len(terminals) == len(nets):
-            raise ValueError(f'Number of terminals ({len(terminals)}) is not equal to number of nets ({len(nets)})')
-        for i in range(0, len(terminals)):
-            self.connect(terminals[i], nets[i])
+        self.append_cell_dict(port_dict)
 
-    def set_parameter(self, name, value):
+        # Finally connect terminal to net in current hierchy
+        if isinstance(rect, Terminal) and isinstance(port, Terminal):
+            net = self.add_net(self._get_net_name(port.name))
+            if rect.net is None:
+                rect.connect(net)
+
+
+
+
+
+    def add_directed_route(self, layer_name, net_name, route_command,  options=[]):
+        route_dict = {
+            "beforeRoute": {
+                'addDirectedRoutes':
+                [[layer_name, net_name, route_command]]
+            }
+        }
+        for opt in options:
+            route_dict["beforeRoute"]["addDirectedRoutes"][0].append(opt)
+        self.append_cell_dict(route_dict)
+
+    def get_hierarchy_string(self, terminal):
         """
-        Set value of parameter 'name' to 'value'
+        Returns the string from self to port on the form (SC=sub circuit):
+        SC1:SC2:TERMINAL
         """
-        self.parameters[name] = num2string(value)
+        if isinstance(terminal, str):
+            return terminal
+        elif isinstance(terminal, Terminal):
+            s = terminal.name
+            parent_cell = terminal.cell
+            while parent_cell is not self:
+                s = f'{parent_cell.instance_name}:{s}'
+                parent_cell = parent_cell.parent_cell
+            return s
+        else:
+            raise ValueError(f'Invalid terminal {terminal}')
+
+    def route(self, layer_name, net, from_port, to_port, route_type, options=[]):
+        route_cmd = f'{self.get_hierarchy_string(from_port)}{route_type}{self.get_hierarchy_string(to_port)}'
+
+        self.add_directed_route(layer_name, self._get_net_name(net), route_cmd, options=options)
+
+        self._deep_connect(from_port, net)
+        self._deep_connect(to_port, net)
+
+    def _deep_connect(self, port, net):
+        """
+        Connect port to net, where the port is allowed to be deep in the hiearchy, and the connection is made within self
+        """
+        # Add connection from ports to net if not present
+        net = self.add_net(self._get_net_name(net))
+        while port.cell is not self and port.cell.parent_cell is not self:
+            # Find the port in the right hiearchy level
+            port = port.cell.parent_cell.get_terminal(port.net.name)
+        if port.net is None:
+            port.connect(net)
+
+
+    def add_via(self, start_layer, stop_layer, rect, horizontal_cuts, *args):
+        """
+        Add a via at an horizontal offset to a rectangle defined by a path regex
+
+        [ "M3",          //Start layer
+        "M4",          //Stop layer
+        "MP1:D",       //Path regex to find rectangle
+        2,             //Horizontal cuts
+        1,             //Vertical cuts       [optional]
+        8,             //Horizontal offset   [optional]
+        "CUST_VREF"    //Custom name for via [optional]
+        ]
+        """
+        via_dict = {
+            "beforeRoute": {
+                'addVias':
+                    [[start_layer,
+                    stop_layer,
+                    self.get_hierarchy_string(rect),
+                    horizontal_cuts
+                    ]]
+            }
+        }
+        for a in args:
+            via_dict["beforeRoute"]["addVias"][0].append(a)
+
+        self.append_cell_dict(via_dict)
+
+    def add_vertical_rect(self, layer_name, rect, cuts=0):
+        """
+        Adds a custom rectangle for the height of the module
+        ["M5",          //Layer
+        "CUST_C16",    //Path regex
+        1              //Cuts, default 0, if 0 then use rectangle width
+        ]
+        """
+        vr_dict = {
+            "beforeRoute": {
+                'addVerticalRects':
+                    [[layer_name,
+                    self.get_hierarchy_string(rect),
+                    cuts
+                    ]]
+            }
+        }
+        self.append_cell_dict(vr_dict)
 
 
 class Design(Cell):
@@ -351,16 +772,6 @@ class Design(Cell):
         # Initial conditions
         self.ic = get_kwarg(kwargs, 'ic')
 
-
-    def get_subckts(self):
-        """
-        Returns a ordered list of all unique subckts in design
-        """
-        subckts = []
-        for cell_name in self.subcells:
-            cell = self.subcells[cell_name]
-            subckts = cell.append_subckt_list(subckts)
-        return subckts
 
     def get_cell_meta(self):
         """
@@ -428,87 +839,3 @@ class Design(Cell):
         self.rewrite_netlist()
         return self.netlist_string
 
-class Terminal:
-    """
-    Terminal
-    A Terminal is owned by a Cell and connected to a net
-    It contains a reference to its cell.
-    It knows in which order it appears in the netlist definition.
-
-    """
-    def __init__(self, name: str, cell: Cell):
-
-        self.name = name
-        self.net = None
-        self.cell = cell
-        # Index of self in definition of cell
-        self.index = len(cell.terminals) + 1
-
-    def __str__(self):
-        s  = f"Terminal {self.name} of cell {self.cell.instance_name}\n"
-        s += "Connected to net: {}\n".format(self.net.name if self.net else "None")
-        return s
-
-    def __repr__(self):
-        s  = "Terminal {} of cell {} in design {}\n".format(self.name, self.cell.instance_name, self.design.cell_name)
-        s += "Connected to net: {}\n".format(self.net.name if self.net else "None")
-        return s
-
-    def get_net(self):
-        return self.net
-
-    def connect(self, net):
-        """
-        Connect terminal to a net
-
-        Arguments
-            net: Net or str
-        """
-        # If net is Net, connect directly
-        if isinstance(net, Net):
-            self.net=net
-            net.connect([self])
-        # If net is str, check if net exist, else create a Net with this name and connect
-        elif isinstance(net, str):
-            parent = self.cell.parent_cell
-            if parent.has_net(net):
-                net = parent.get_net(net)
-            else:
-                net = Net(net, self.design)
-            self.net=net
-            net.connect([self])
-        else:
-            raise ValueError('Could not connect. {} is not a Net or a string'.format(net))
-
-class Net:
-    """
-    Net
-    A net is owned by a design/cell and connected to one or more terminals
-    Contains reference to its design and connected terminals
-    """
-    def __init__(self, name, cell):
-        """
-        Arguments:
-            name: String
-            cell: Cell
-        """
-        self.name = name
-        self.cell = cell
-        cell.add_net(self)
-        self.connections = []
-
-    def __str__(self):
-        s  = "Net {}\nConnected to:\n".format(self.name)
-        for c in self.connections:
-            s += "- terminal {} of cell {}\n".format(c.name, c.cell.instance_name)
-        return s
-
-    def connect(self, terminals):
-        """
-        Connect net to a list of terminals
-        """
-        for t in terminals:
-            if isinstance(t, Terminal):
-                self.connections.append(t)
-            else:
-                raise ValueError('{} is not a Terminal'.format(t))
