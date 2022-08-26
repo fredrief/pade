@@ -1,7 +1,6 @@
 from distutils.command.config import config
 from typing import List
 from pade.psf_parser import PSFParser
-from pade.analysis import tran, dc, noise, ac, Typical
 from pade.spectre import Spectre as Simulator
 from pade.evaluation import Evaluation, Expression
 from pade.utils import get_kwarg, init_logger

@@ -1,5 +1,3 @@
-import imp
-from pade.analysis import Analysis, Corner, Typical
 from shlib import mkdir, ls, to_path, rm
 from pade.utils import get_kwarg, num2string, cat, writef
 import re

@@ -5,11 +5,9 @@ class Corner:
     """
     For corner setup
     """
-    def __init__(self, model_file, name, temp=27, append=[]):
-        self.model_file = model_file
-        self.temp = temp
+    def __init__(self, name, corner_string):
         self.name = name
-        self.append = append
+        self.corner_string = corner_string
 
     def __str__(self) -> str:
         return self.name
@@ -18,28 +16,9 @@ class Corner:
         return self.name
 
     def get_string(self) -> str:
-        corner_string = ""
-        # corner_string += "paramOp options redefinedparams=ignore\n"
-        corner_string += f'include {self.model_file}\n'
-        corner_string += f'TempOp options temp={self.temp}\n'
-        for s in self.append:
-            corner_string += f"{s}\n"
-        return corner_string
+        return self.corner_string
 
 
-class Typical(Corner):
-    """
-    Default typical corner
-    """
-    def __init__(self, model_file):
-        super().__init__(model_file, name='Typical', temp=27)
-
-class Mc(Corner):
-    """
-    Default montecarlo corner
-    """
-    def __init__(self, model_file):
-        super().__init__(model_file, 27, name='mc')
 
 class Analysis:
     """
@@ -110,6 +89,7 @@ class dcOpInfo(Analysis):
         for param in parameters:
             p[param] = parameters[param]
         super().__init__(name, type=type, parameters=p)
+
 
 class initial_condition(Analysis):
     """
