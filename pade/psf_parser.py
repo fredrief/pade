@@ -1,14 +1,12 @@
 from pade import ureg
 from pade.signal import Signal
-from pade.utils import file_exist
+from pade.utils import get_unit
 from psf_utils import PSF, Quantity
 from shlib import ls, to_path, mkdir, rm
 from numbers import Number
 import pandas as pd
 import numpy as np
-import subprocess
-import os
-import yaml
+from inform import error, info
 
 class PSFParser(object):
     """
@@ -54,10 +52,8 @@ class PSFParser(object):
                     trace = np.array([signal.ordinate.real + 1j*signal.ordinate.imag])
                 else:
                     trace = signal.ordinate
-                try:
-                    unit = getattr(ureg, signal.units.replace('sqrt(Hz)', 'hertz**0.5').lower()) if signal.units else None
-                except:
-                    unit = None
+
+                unit = get_unit(signal)
                 q = ureg.Quantity(trace, unit)
                 s = Signal(trace, q.units, name=signal.name, analysis=analysis_name, simulation=self.sim_name, sweep=False)
                 self.signals[f'{self.sim_name}:{analysis_name}:{s.name}'] = s
@@ -96,7 +92,7 @@ class PSFParser(object):
         if identifier in self.signals:
             return self.signals[identifier]
         else:
-            raise RuntimeError(f'Signal does not exist: Name {name}, Analysis {analysis}')
+            return np.nan
 
     def add_signal(self, signal):
         if isinstance(signal, Signal):

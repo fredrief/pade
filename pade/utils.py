@@ -3,7 +3,7 @@ import numpy.linalg as nla
 import os
 import sys
 import logging
-from pade import info, display, warn, error, fatal
+from pade import info, display, warn, error, fatal, ureg
 from shlib.shlib import to_path, mkdir
 
 def append_dict(d1, d2):
@@ -142,3 +142,21 @@ def writef(lines, filename):
 
 # Print results
 html_formatter = lambda s: '{:.4f~P}'.format(s)
+
+
+def get_unit(signal):
+    # Hack for noise voltage
+    if not signal.units is None:
+        signal.units = signal.units.replace('sqrt(Hz)', 'hertz**0.5')
+    try:
+        unit = getattr(ureg, signal.units)
+    except:
+        try:
+            unit = getattr(ureg, signal.units.lower())
+        except:
+            unit = None
+    return unit
+
+
+
+
