@@ -241,7 +241,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         """
         q = ureg.Quantity(self.trace, self.unit)
         # Try to convert to derived units
-        derived_units = ['W', 'mho', 'F']
+        derived_units = ['W', 'mho', 'F', 'ohm']
         for u in derived_units:
             try:
                 q = q.to(u)
