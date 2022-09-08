@@ -220,3 +220,49 @@ class SpectreError(Exception):
 
     def __str__(self):
         return self.message
+
+
+"""
+For simulating complete netlist
+"""
+def simulate_netlist(logger, netlist_path, work_dir):
+    log_file = to_path(work_dir, 'spectre_sim.log')
+    raw_data_dir = to_path(work_dir, 'simulation_output')
+    mkdir(raw_data_dir)
+
+    popen_cmd = [f'spectre {netlist_path} -format psfascii -raw {raw_data_dir} ++aps -ahdllibdir {raw_data_dir} -log']
+
+    logger.info(f'Starting spectre simulation.\nCommand: {popen_cmd}')
+    tq = tqdm(total=100, leave=False)
+    with open(log_file, 'wb') as f:
+        process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        p0 = 0
+        line_s = None
+        for line in iter(process.stdout.readline, b''):
+            f.write(line)
+            line_s = line.decode('ascii')
+            # Only write time info to console
+            progress_line = re.search('\(.* %\)', line_s)
+            if progress_line:
+                progress = float(line_s.split(' %')[0].split('(')[1])
+                analysis = line_s.split(':')[0].strip()
+                if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
+                    continue
+                tq.update(progress-p0)
+                tq.set_description(f'{analysis}')
+                p0 = progress
+                # Close tq
+        tq.close()
+        if line_s is None:
+            fatal('Spectre simulation did not return any output')
+        try:
+            status_list = line_s.split(' ')
+            err_idx = int([i for i in range(0, len(status_list)) if "error" in status_list[i]][0])-1
+            errors = int(status_list[err_idx])
+        except:
+            errors = True
+        if errors:
+            raise RuntimeError(f'Error occurred. See: {log_file}')
+
+    logger.info("SPECTRE SIMULATION COMPLETE")
+    logger.info(f"Raw data directory: {raw_data_dir}")
