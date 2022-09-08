@@ -6,7 +6,7 @@ from shlib import ls, to_path, mkdir, rm
 from numbers import Number
 import pandas as pd
 import numpy as np
-from inform import error, info
+from inform import error
 
 class PSFParser(object):
     """
