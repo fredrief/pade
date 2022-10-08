@@ -127,7 +127,7 @@ class idc(Cell):
 
 class vsin(Cell):
     """
-    DC Voltage source
+    Sine voltage source
     Terminals: p, n
     """
     def __init__(self, instance_name, parent_cell, vdc, ampl, freq, **kwargs):
@@ -245,6 +245,31 @@ class vpulse(Cell):
             self.parameters['fall'] = num2string(fall)
         if width is not None:
             self.parameters['width'] = num2string(width)
+
+
+class vpwl(Cell):
+    """
+    Arguments:
+        wave: List
+            List of time/value points
+    Terminals: p, n
+    """
+    def __init__(self, instance_name, parent_cell, wave, **kwargs):
+        # Call super init
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.add_terminal("p")
+        self.add_terminal("n")
+        wave_str_list = [str(w) for w in wave]
+        # Add properties
+        wave_str = "[" + ' '.join(wave_str_list) + ']'
+        self.parameters = {'type': 'pwl', 'wave': wave_str}
+        # Add optional properties
+        # V0 (net2 net1) vsource type=pwl wave=[ 0 0 1u 1 2u 2 ]
+        for key, value in kwargs.items():
+            self.parameters[key] = value
+
+
 
 class bsource(Cell):
     """

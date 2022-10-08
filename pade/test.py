@@ -18,7 +18,18 @@ class Test:
         self.design = design
         self.project_name = project_root_dir.name
         self.expressions = expressions
-        self.parse_kwargs(**kwargs)
+        self.corner = get_kwarg(kwargs, 'corner')
+        self.sim_name = get_kwarg(kwargs, 'sim_name', self.corner.name)
+        self.dir_name = get_kwarg(kwargs, 'dir_name', self.sim_name)
+        self.run_index = get_kwarg(kwargs, 'run_index', 0)
+        self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
+        self.debug = kwargs['debug'] if 'debug' in kwargs else False
+        self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
+        self.output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
+        # Add all signal names from expressions
+        self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
+        self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
+
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
         # keep all paths and directories at the same place
@@ -29,11 +40,22 @@ class Test:
         self.output_dir = to_path(self.sim_data_dir,"simulation_output")
         self.html_dir = kwargs['html_dir'] if 'html_dir' in kwargs else self.res_dir
         self.latex_dir = kwargs['latex_dir'] if 'latex_dir' in kwargs else self.res_dir
-        self.figure_dir = to_path(self.project_root_dir, f"{self.project_name}_figures")
+
+        # Skill plot object
+        self.SkillPlot = kwargs.get('SkillPlot')
+        # Skill script dir. Let it be equal to res if no skill scripts are specified
+        self.skill_dir = to_path(self.sim_data_dir, "skill") if self.SkillPlot else self.res_dir
         # Logger
         main_logf = to_path(self.log_dir, 'main.log')
         # Make all directories at init
-        mkdir(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir, self.html_dir, self.latex_dir, self.res_dir, self.log_dir)
+        mkdir(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir, self.html_dir, self.latex_dir, self.res_dir, self.log_dir, self.skill_dir)
+
+        # command options
+        self.command_options = [
+            '-f', 'psfascii', '-log', '-ahdllibdir', self.sim_data_dir]
+        if 'command_options' in kwargs:
+            for opt in kwargs['command_options']:
+                self.command_options.append(opt)
 
         self.logger = get_kwarg(kwargs, 'logger')
         if self.logger is None:
@@ -78,6 +100,9 @@ class Test:
         sim = self.simulator
         parser = PSFParser(self.logger, self.output_dir, self.sim_name)
         sim.run(cache=cache)
+        # Plot using skill
+        if self.SkillPlot:
+            self.SkillPlot.plot(self.skill_dir, self.output_dir)
         # Terminate if debugging
         if self.debug:
             self.logger.info('Debug mode active: Terminating Program')
@@ -121,26 +146,26 @@ class Test:
         except Exception as e:
             self.logger.info(f'Failed writing results to Latex table: {e}')
 
-    def save_plot(self, expressions, name='plot.png'):
-        figure_path = to_path(self.figure_dir, name)
-        signals = self.evaluate(expressions).to_numpy()
-        N = signals.shape[0]
-        for n in range(N):
-            sig = signals[n][0]
-            sweep = self.parser.get_sweep(sig.analysis)
-            plt.subplot(N+1, 1, n+1)
+    # def save_plot(self, expressions, name='plot.png'):
+    #     figure_path = to_path(self.figure_dir, name)
+    #     signals = self.evaluate(expressions).to_numpy()
+    #     N = signals.shape[0]
+    #     for n in range(N):
+    #         sig = signals[n][0]
+    #         sweep = self.parser.get_sweep(sig.analysis)
+    #         plt.subplot(N+1, 1, n+1)
 
-            # plt.yticks([])
-            if not n==N-1:
-                plt.xticks([])
-            # Plotting against sweep fails if dimensions are not equal
-            try:
-                plt.plot(sweep.trace, sig.trace, label=sig.name)
-            except ValueError:
-                plt.plot(sig.trace, label=sig.name)
-            plt.legend(loc='upper right')
-            # plt.ylabel(f'[{sig.unit}]')
-        plt.savefig(figure_path)
+    #         # plt.yticks([])
+    #         if not n==N-1:
+    #             plt.xticks([])
+    #         # Plotting against sweep fails if dimensions are not equal
+    #         try:
+    #             plt.plot(sweep.trace, sig.trace, label=sig.name)
+    #         except ValueError:
+    #             plt.plot(sig.trace, label=sig.name)
+    #         plt.legend(loc='upper right')
+    #         # plt.ylabel(f'[{sig.unit}]')
+    #     plt.savefig(figure_path)
 
 
     def get_output_selections(self, outputs: List, expressions: Expression):
@@ -169,23 +194,3 @@ class Test:
             rm(self.sim_data_dir)
         except:
             pass
-
-
-    def parse_kwargs(self, **kwargs):
-        self.corner = get_kwarg(kwargs, 'corner')
-        self.sim_name = get_kwarg(kwargs, 'sim_name', self.corner.name)
-        self.dir_name = get_kwarg(kwargs, 'dir_name', self.sim_name)
-        self.run_index = get_kwarg(kwargs, 'run_index', 0)
-        self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
-        self.debug = kwargs['debug'] if 'debug' in kwargs else False
-        self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
-        # command options
-        self.command_options = [
-            '-f', 'psfascii', '-log']
-        if 'command_options' in kwargs:
-            for opt in kwargs['command_options']:
-                self.command_options.append(opt)
-        self.output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
-        # Add all signal names from expressions
-        self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
-        self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'

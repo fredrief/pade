@@ -1,12 +1,10 @@
 from shlib import mkdir, ls, to_path, rm
 from pade.utils import get_kwarg, num2string, cat, writef
 import re
-import numpy as np
-import logging
-import yaml
 import subprocess
 from tqdm import tqdm
 from pade import fatal
+from datetime import datetime
 
 class Spectre(object):
     """
@@ -92,6 +90,7 @@ class Spectre(object):
         """
         self.netlist_string = "// Generated for: spectre\n"
         self.netlist_string += "// Design cell name: {}\n".format(self.design.cell_name)
+        self.netlist_string += f"// Timestamp: {datetime.now()}\n"
         self.netlist_string += 'simulator lang=spectre\n'
         self.netlist_string += f"global {self.global_nets}\n"
         self.netlist_string += self.corner.get_string()
@@ -155,7 +154,14 @@ class Spectre(object):
         if cache:
             prev_netlist = cat(netlist_path)
             new_netlist = self._generate_netlist_string(corner)
-            if (new_netlist == prev_netlist):
+            try:
+                prev_netlist_ = re.sub('// Timestamp: .*\n', '', prev_netlist)
+                new_netlist_ = re.sub('// Timestamp: .*\n', '', new_netlist)
+            except:
+                prev_netlist_ = prev_netlist
+                new_netlist_ = new_netlist
+
+            if (new_netlist_ == prev_netlist_):
                 self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
                 return
 

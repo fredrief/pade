@@ -1,6 +1,8 @@
+from symbol import return_stmt
 from pade.utils import num2string, get_kwarg, append_dict
 import re
 import json
+from inform import warn
 
 class Terminal:
     """
@@ -29,6 +31,9 @@ class Terminal:
 
     def get_net(self):
         return self.net
+
+    def get_name_from_top(self):
+        return f"{self.cell.get_name_from_top()}.{self.name}"
 
     def connect(self, net):
         """
@@ -82,6 +87,10 @@ class Net:
             s += "- terminal {} of cell {}\n".format(c.name, c.cell.instance_name)
         return s
 
+    def get_name_from_top(self):
+        return f"{self.cell.get_name_from_top()}:{self.name}"
+
+
     def connect(self, terminals):
         """
         Connect net to a list of terminals
@@ -129,7 +138,7 @@ class Cell:
             self.parent_cell.add_subcell(self)
 
         # Generate parameters and terminals if netlist is available
-        netlist_filename = get_kwarg(kwargs, 'netlist_filename')
+        netlist_filename = kwargs.get('netlist_filename')
         if netlist_filename:
             self.extract_data_from_file(netlist_filename, **kwargs)
         # Initialize subckt string
@@ -182,8 +191,10 @@ class Cell:
 
             # Define terminals
             elif line.startswith('subckt'):
-                if not self.cell_name == line.split()[1]:
-                    raise ValueError('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
+                # Accept that the cell_name in the netlist is different from the specified cell name
+
+                # if not self.cell_name == line.split()[1]:
+                #     raise ValueError('Cannot instantiate component. Cell name does not equal subckt declaration in file.')
                 for terminal in line.split()[2:]:
                     t = self.add_terminal(terminal)
                     # Add terminal ass attribute
@@ -283,7 +294,9 @@ class Cell:
             self.terminals[name] = terminal
             return terminal
         else:
-            raise ValueError('Terminal {} already exist/was not set for another reason'.format(name))
+            warn(f'Terminal {name} already exist')
+            return self.terminals[name]
+
 
     def add_multiple_terminals(self, terminals):
         """
@@ -413,6 +426,19 @@ class Cell:
         """
         Return sub circuit declaration string
         """
+        # Check if Cell as unconnected terminals
+        ut_list = list(self.terminals.keys())
+        for key in self.subcells:
+            c = self.subcells[key]
+            for t in c.get_sorted_terminal_list():
+                if t.net is None:
+                    raise RuntimeError(f'Terminal {t.get_name_from_top()} is not connected to a net')
+                if t.net.name in ut_list:
+                    ut_list.remove(t.net.name)
+        if len(ut_list):
+            warn(f'Cell {self.get_name_from_top()} has internally unconnected terminals: {ut_list}')
+
+
         # META
         s = ""
         s += f"// Cell name: {self.cell_name}\n"
@@ -463,6 +489,19 @@ class Cell:
         s += "\n"
         return s
 
+    def get_name_from_top(self):
+        """
+        Returns the instance name on the form
+        P1.P2.self.instance_name
+        """
+        name_string = self.instance_name
+        pc = self.parent_cell
+        # Design has cell_name = instance_name. Stop when we have reached Design
+        while pc and pc.instance_name != pc.cell_name:
+            name_string = f'{pc.instance_name}.{name_string}'
+            pc = pc.parent_cell
+        return name_string
+
 
     def get_terminal_from_net(self, net):
         """
@@ -482,13 +521,15 @@ class Cell:
 class LayoutCell(Cell):
     """
     Extends Cell with functionality for generating Layout
+    TODO: Support symbol
     """
     def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
         super().__init__(cell_name, instance_name, parent_cell, **kwargs)
+        self.cic_class = kwargs.get('cic_class', "Layout::LayoutDigitalCell")
         # Definition for json object file
         self.cell_definition = {
             "name": self.cell_name,
-            "class": "Layout::LayoutDigitalCell",
+            "class": self.cic_class,
         }
 
         # Parameters for Spice netlist file
@@ -550,9 +591,10 @@ class LayoutCell(Cell):
         return netlist
 
 
-    def write_object_definition_file(self, filename, header={}, include_json_list=[]):
+    def write_object_definition_file(self, filename, header={}, options={}, include_json_list=[]):
         self.object_definition_dict = {}
         self.object_definition_dict['header'] = header
+        self.object_definition_dict['options'] = options
         self.object_definition_dict['cells'] = []
 
         # json files to include
@@ -593,8 +635,9 @@ class LayoutCell(Cell):
         """
         Set layout properties to object definition
         """
-        for key, value in properties.items():
-            self.cell_definition[key] = value
+        self.append_cell_dict(properties)
+        # for key, value in properties.items():
+        #     self.cell_definition[key] = value
 
     def has_property(self, p):
         return p in self.cell_definition
@@ -665,15 +708,19 @@ class LayoutCell(Cell):
 
 
 
-    def add_directed_route(self, layer_name, net_name, route_command,  options=[]):
+    def add_directed_route(self, layer_name, net_name, route_command, options=[]):
         route_dict = {
             "beforeRoute": {
                 'addDirectedRoutes':
                 [[layer_name, net_name, route_command]]
             }
         }
+        opt_string = ''
         for opt in options:
-            route_dict["beforeRoute"]["addDirectedRoutes"][0].append(opt)
+            opt_string += opt
+            if not opt == options[-1]:
+                opt_string += ','
+        route_dict["beforeRoute"]["addDirectedRoutes"][0].append(opt_string)
         self.append_cell_dict(route_dict)
 
     def get_hierarchy_string(self, terminal):
@@ -712,6 +759,8 @@ class LayoutCell(Cell):
             port = port.cell.parent_cell.get_terminal(port.net.name)
         if port.net is None:
             port.connect(net)
+        elif not port.net.get_name_from_top() == net.get_name_from_top():
+            raise RuntimeError(f'You tried to route {port.get_name_from_top()} to {net.get_name_from_top()}, but {port.get_name_from_top()} is already connected to {port.net.get_name_from_top()}')
 
 
     def add_via(self, start_layer, stop_layer, rect, horizontal_cuts, *args):
@@ -761,6 +810,37 @@ class LayoutCell(Cell):
         }
         self.append_cell_dict(vr_dict)
 
+    def get_iname(self, base='X', new_col=False):
+        """
+        Return a valid instance name with given base.
+        If X1 and X2 already exist in cell, then the next valid name is X3
+
+        If new_col=True then a char will be appended before numerical index
+
+        If stack_v: append numeric value to stack vertically. Else, append alphabetic to stack horisontally
+        """
+        # First determine base depending on col
+        current_col = 'A' # Alphabetical index, gives col
+        for iname, c in self.subcells.items():
+            # Check for alphabetical index
+            split_base = iname.split(base)
+            if len(split_base) > 1:
+                # If the instance name of subcell contains base, assume the next char is the alphabetic col index
+                # Ex: If base=MN and iname is MNB3, then the next col char should be C
+                col = split_base[1][0]
+                if ord(col) > ord(current_col):
+                    current_col = col
+        if new_col:
+            current_col = chr(ord(current_col) + 1)
+        colbase = f'{base}{current_col}'
+        current_index = -1 # Numerical index, gives horisontal stacking
+        for iname, c in self.subcells.items():
+            # Get numerical index of subcell
+            ibase, index = re.split(r'(^[^\d]+)', iname)[1:]
+            if ibase == colbase:
+                current_index = int(index)
+        current_index = current_index + 1
+        return f'{base}{current_col}{current_index}'
 
 class Design(Cell):
     """
@@ -838,4 +918,20 @@ class Design(Cell):
     def get_netlist_string(self):
         self.rewrite_netlist()
         return self.netlist_string
+
+
+
+class PatternCell(LayoutCell):
+    """
+    The basic unit cells
+    """
+    def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
+        cic_class = kwargs.get('cic_class', "Gds::GdsPatternTransistor")
+        super().__init__(cell_name, instance_name, parent_cell, cic_class=cic_class,  **kwargs)
+
+    # Overwrite/disable layout subckt
+    def _get_lay_cic_spice_subckt_string(self):
+        return ""
+
+
 
