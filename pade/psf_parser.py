@@ -6,7 +6,7 @@ from shlib import ls, to_path, mkdir, rm
 from numbers import Number
 import pandas as pd
 import numpy as np
-from inform import error
+from inform import error, warn
 
 class PSFParser(object):
     """
@@ -92,6 +92,7 @@ class PSFParser(object):
         if identifier in self.signals:
             return self.signals[identifier]
         else:
+            warn(f'Signal {name} from analysis {analysis} not available. Returning NaN')
             return np.nan
 
     def add_signal(self, signal):

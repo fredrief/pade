@@ -193,4 +193,5 @@ class Test:
         try:
             rm(self.sim_data_dir)
         except:
+            rm(self.output_dir)
             pass
