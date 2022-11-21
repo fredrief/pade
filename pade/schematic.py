@@ -58,6 +58,15 @@ class Terminal:
         else:
             raise ValueError('Could not connect. {} is not a Net or a string'.format(net))
 
+    def disconnect(self):
+        """
+        Disconnect self from net
+        """
+        if self.net is not None:
+            self.net.disconnect(self)
+            self.net = None
+
+
 class Net:
     """
     Net
@@ -101,6 +110,15 @@ class Net:
             else:
                 raise ValueError('{} is not a Terminal'.format(t))
 
+    def disconnect(self, terminal: Terminal):
+        """
+        Remove terminal from list of connections
+        """
+        if terminal in self.connections:
+            self.connections.remove(terminal)
+        else:
+            warn(f'Terminal {terminal.get_name_from_top()} was never connected to {self}')
+
 
 
 class Cell:
@@ -140,7 +158,10 @@ class Cell:
         # Generate parameters and terminals if netlist is available
         netlist_filename = kwargs.get('netlist_filename')
         if netlist_filename:
-            self.extract_data_from_file(netlist_filename, **kwargs)
+            try:
+                self.extract_data_from_file(netlist_filename, **kwargs)
+            except Exception as e:
+                warn(f'Could not extract Cell {self.cell_name} from netlist.')
         # Initialize subckt string
         self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
         # AHDL Filepath
@@ -228,6 +249,14 @@ class Cell:
                     subcell.quick_connect(sc_terminals, sc_connected_nets)
                     subcell.add_parameters(sc_param_dict)
 
+    def get_subcell_by_iname(self, target_iname):
+        """
+        Return subcell with specified iname
+        """
+        for iname, cell in self.subcells.items():
+            if iname == target_iname:
+                return cell
+
     def add_parameters(self, parameters):
         """
         Add parameters to design
@@ -287,7 +316,7 @@ class Cell:
     def add_terminal(self, name):
         """
         Add terminal <name> if it does not already exist
-        Added as a member of list of terminals
+        Added as a member of dict of terminals
         """
         if not name in self.terminals and isinstance(name, str):
             terminal = Terminal(name, self)
@@ -297,6 +326,12 @@ class Cell:
             warn(f'Terminal {name} already exist')
             return self.terminals[name]
 
+    def delete_terminal(self, terminal: Terminal):
+        """
+        Delete terminal
+        """
+        del self.terminals[terminal.name]
+        del terminal
 
     def add_multiple_terminals(self, terminals):
         """
@@ -380,14 +415,30 @@ class Cell:
             terminal.connect(net)
         # If net is terminal, create a net with the same name as the terminal and connect
         elif isinstance(net, Terminal):
-            t2 = net
-            netname = t2.name
+            t2 = net # The other terminal
             parent = self.parent_cell
-            if netname in parent.nets:
-                net = parent.get_net(netname)
+            if parent == t2.cell:
+                # If the parent of the terminal is the same as self.parent, connect to a net with the name of the terminal.
+                # This assumes that terminal is the terminal of a subcell and that t2 is a terminal of self
+                netname = t2.name
+                if netname in parent.nets:
+                    net = parent.get_net(netname)
+                else:
+                    net = Net(netname, parent)
+                terminal.connect(net)
+
+            elif parent == t2.cell.parent_cell:
+                # In this case t2 is the terminal of a subcell. Create a net with a unique name, and connect both terminals to the same net.
+                netname = t2.get_name_from_top().replace('.', '')
+                if netname in parent.nets:
+                    net = parent.get_net(netname)
+                else:
+                    net = Net(netname, parent)
+                terminal.connect(net)
+                t2.connect(net)
+
             else:
-                net = Net(netname, parent)
-            terminal.connect(net)
+                raise ValueError(f'Could not connect {terminal} to {net}')
         else:
             raise ValueError(f'Could not connect. {net} is not a Net, string or a Terminal')
 
@@ -405,6 +456,38 @@ class Cell:
             raise ValueError(f'Number of terminals ({len(terminals)}) is not equal to number of nets ({len(nets)})')
         for i in range(0, len(terminals)):
             self.connect(terminals[i], nets[i])
+
+    def insert(self, ta1: Terminal , ta2: Terminal, t1: Terminal, t2: Terminal):
+        """
+        Connect self.t1 and self.t2 between Terminals ta1 and ta2
+        """
+        # Verify that ta1 and ta2 are both connected to the same net
+        if ta1.net is None or ta2.net is None:
+            raise ValueError(f'Cannot insert between terminals {ta1} and {ta2} because one of them are not connected to a net')
+        elif ta1.net is not ta2.net:
+            raise ValueError(f'Cannot insert between terminals {ta1} and {ta2} because they are not connected to the same net.')
+
+        net2 = ta2.net
+        # Disconnect all other terminals connected to net1. Add to pending list. Disconnect later
+        pending_terminal_list = []
+        for t in net2.connections:
+            if not t is ta2:
+                pending_terminal_list.append(t)
+        # Connect t2 to net2
+        t2.connect(net2)
+        # Create a new net and connect t2 and all pending terminals
+        net1 = Net(ta1.get_name_from_top().replace('.', ''), self.parent_cell)
+        t1.connect(net1)
+        for t in pending_terminal_list:
+            t.disconnect()
+            t.connect(net1)
+
+
+
+
+
+
+
 
     def set_parameter(self, name, value):
         """
@@ -433,6 +516,10 @@ class Cell:
             for t in c.get_sorted_terminal_list():
                 if t.net is None:
                     raise RuntimeError(f'Terminal {t.get_name_from_top()} is not connected to a net')
+                    # warn(f'Terminal {t.get_name_from_top()} is not connected to a net. Will be removed.')
+                    # c.delete_terminal(t)
+                    # continue
+
                 if t.net.name in ut_list:
                     ut_list.remove(t.net.name)
         if len(ut_list):
@@ -446,6 +533,10 @@ class Cell:
         s += f"subckt {self.cell_name}"
         # TERMINALS
         for t in self.get_sorted_terminal_list():
+            if t.net is None:
+                warn(f'Terminal {t.get_name_from_top()} is not connected to a net. Will be removed.')
+                self.delete_terminal(t)
+                continue
             s += f' {t.name}'
         s += "\n"
         # PARAMETERS
