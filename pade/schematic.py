@@ -2,7 +2,10 @@ from symbol import return_stmt
 from pade.utils import num2string, get_kwarg, append_dict
 import re
 import json
-from inform import warn
+from inform import warn, debug
+from skillbridge import Workspace
+# from pade.layout.pattern import Box
+# from pade.layout.geometry import Coordinate
 
 class Terminal:
     """
@@ -120,6 +123,21 @@ class Net:
             warn(f'Terminal {terminal.get_name_from_top()} was never connected to {self}')
 
 
+class Parameter:
+    """
+    Parameter class
+    """
+    def __init__(self, name, value, default=None, CDF=False) -> None:
+        self.name = name
+        self.value = value
+        self.default = default
+        self.is_CDF = CDF # Indicate whether or not the parameter is a CDF parameter
+
+    def get_value_str(self):
+        return f'{self.name}={num2string(self.value)}'
+
+    def get_default_str(self):
+        return f'{self.name}={num2string(self.default)}' if self.default is not None else self.name
 
 class Cell:
     """
@@ -149,6 +167,7 @@ class Cell:
         self.parameters = {}
         self.cell_name = cell_name
         self.instance_name = instance_name
+        self.lib_name = kwargs.get('lib_name')
 
         # Connect cell and design/parent cell
         self.parent_cell = parent_cell
@@ -160,6 +179,7 @@ class Cell:
         if netlist_filename:
             try:
                 self.extract_data_from_file(netlist_filename, **kwargs)
+                # debug(f'Extracted cell {self.cell_name} from file {netlist_filename}')
             except Exception as e:
                 warn(f'Could not extract Cell {self.cell_name} from netlist.')
         # Initialize subckt string
@@ -257,13 +277,38 @@ class Cell:
             if iname == target_iname:
                 return cell
 
+    def set_parameter(self, name, value, CDF=False):
+        """
+        Set value of parameter 'name' to 'value'
+        Value can be a numerical value or a Parameter
+        """
+        if isinstance(value, Parameter):
+            self.parameters[name] = value
+        else:
+            # Create Parameter object if value us numerical
+            param = Parameter(name, value, CDF=CDF)
+            self.parameters[name] = param
+
+
+    def get_parameter(self, name):
+        """
+        Return numerical value of parameter
+        """
+        return self.parameters[name].value
+
+
+
+
+
+
     def add_parameters(self, parameters):
         """
         Add parameters to design
         Arguments
             parameters: Dictionary
         """
-        self.parameters = {**self.parameters, **parameters}
+        for name, value in parameters.items():
+            self.set_parameter(name, value)
 
     def append_subckt_list(self, subckt_list):
         """
@@ -323,7 +368,7 @@ class Cell:
             self.terminals[name] = terminal
             return terminal
         else:
-            warn(f'Terminal {name} already exist')
+            warn(f'Terminal {name} already exist in cell {self.get_name_from_top()}')
             return self.terminals[name]
 
     def delete_terminal(self, terminal: Terminal):
@@ -358,6 +403,12 @@ class Cell:
         Return a list of all terminal objects
         """
         return list(self.terminals.values())
+
+    def get_all_nets(self):
+        """
+        Return a list of all net objects
+        """
+        return list(self.nets.values())
 
     def get_net(self, net_name):
         """
@@ -482,18 +533,37 @@ class Cell:
             t.disconnect()
             t.connect(net1)
 
-
-
-
-
-
-
-
-    def set_parameter(self, name, value):
+    def get_iname(self, base='X', new_col=False):
         """
-        Set value of parameter 'name' to 'value'
+        Return a valid instance name with given base.
+        If X1 and X2 already exist in cell, then the next valid name is X3
+
+        If new_col=True then a char will be appended before numerical index
+
+        If stack_v: append numeric value to stack vertically. Else, append alphabetic to stack horisontally
         """
-        self.parameters[name] = num2string(value)
+        # First determine base depending on col
+        current_col = 'A' # Alphabetical index, gives col
+        for iname, c in self.subcells.items():
+            # Check for alphabetical index
+            split_base = iname.split(base)
+            if len(split_base) > 1:
+                # If the instance name of subcell contains base, assume the next char is the alphabetic col index
+                # Ex: If base=MN and iname is MNB3, then the next col char should be C
+                col = split_base[1][0]
+                if ord(col) > ord(current_col):
+                    current_col = col
+        if new_col:
+            current_col = chr(ord(current_col) + 1)
+        colbase = f'{base}{current_col}'
+        current_index = -1 # Numerical index, gives horisontal stacking
+        for iname, c in self.subcells.items():
+            # Get numerical index of subcell
+            ibase, index = re.split(r'(^[^\d]+)', iname)[1:]
+            if ibase == colbase:
+                current_index = int(index)
+        current_index = current_index + 1
+        return f'{base}{current_col}{current_index}'
 
     def get_subckts(self):
         """
@@ -542,8 +612,8 @@ class Cell:
         # PARAMETERS
         if self.parameters:
             s += "parameters "
-            for p in self.parameters:
-                s += f"{p} "
+            for name, param in self.parameters.items():
+                s += f"{param.get_default_str()} "
             s += "\n"
 
         # SUBCELLS
@@ -573,10 +643,8 @@ class Cell:
             s += f" {t.net.name}"
         s += " {} ".format(self.cell_name)
         # Add parameters that is not None
-        params = self.parameters if self.parameters is not None else []
-        for p in params:
-            if p is not None:
-                s += "{}={} ".format(p, num2string(params[p]))
+        for name, param in self.parameters.items():
+            s += f"{param.get_value_str()} "
         s += "\n"
         return s
 
@@ -609,6 +677,111 @@ class Cell:
                 return t
 
 
+
+    def print_schematic(self, lib_list=[], recursive=False):
+        """
+        Print schematic to virtuoso using skillbridge
+        Assumes self and all subcells has lib_name set
+
+        lib_list: list of libraries to search for cells if cell does not have a lib_name set
+        recursive: Whether or not to recursively create schematics for subcells
+        """
+        ws = Workspace.open()
+        cell_view = ws.db.open_cell_view_by_type(self.lib_name, self.cell_name, 'schematic', 'schematic', 'w')
+
+        # Create pins
+        iopin_master = ws.db.open_cell_view("basic", "iopin", "symbol", None, "r")
+        for i in range(len(self.terminals)):
+            t = self.get_all_terminals()[i]
+            ws.sch.create_pin(cell_view, iopin_master, t.name, "inputOutput", None, [0, i*0.2], "R0")
+
+
+        # Create symbol if not already exists
+        if not ws.dd.get_obj(self.lib_name, self.cell_name, "symbol"):
+            ws.sch.view_to_view(self.lib_name, self.cell_name, self.lib_name, self.cell_name, "schematic", "symbol", "schSchemToPinList", "schPinListToSymbol")
+
+        # Create schematic for all subcells
+        if recursive:
+            subcell_list = self.get_subcells()
+            for cell in subcell_list:
+                # Print schematic of subcell
+                if cell.declare_subckt:
+                    cell.print_schematic(lib_list=lib_list)
+
+        # Create instances
+        x0 = 2
+        y0 = 0.4
+        symbol = None
+        for iname, cell in self.subcells.items():
+            if not symbol is None:
+                symbol_width = symbol.b_box[1][0] - symbol.b_box[0][0]
+                symbol_height = symbol.b_box[1][1] - symbol.b_box[0][1]
+                x0 += symbol_width
+                # Spread out in vertical direction
+                if x0 > 15:
+                    x0 = 2
+                    y0 -= symbol_height
+            if not cell.lib_name is None:
+                # Find width of symbol to update x coordinate
+                symbol = ws.db.open_cell_view_by_type(cell.lib_name, cell.cell_name, "symbol")
+            else:
+                for lib_name in lib_list:
+                    symbol = ws.db.open_cell_view_by_type(lib_name, cell.cell_name, "symbol")
+                    if not symbol is None:
+                        cell.lib_name = lib_name
+                        break
+            if symbol is None:
+                raise RuntimeError(f'Could not create schematic for {self}. Failed to open {cell} because no library name is specified and I could not find the cell in any of these libraries: {lib_list}')
+
+            # Instantiate cell
+            inst = ws.db.create_inst_by_master_name(cell_view, cell.lib_name, cell.cell_name, 'symbol', iname, [x0,y0], "R0")
+            inst_origin = Coordinate(inst.transform[0])
+
+            # Modify CDF parameters
+            for param_name, param in cell.parameters.items():
+                if param.is_CDF:
+                    instance_parameters = ws.cdf.get_inst_CDF(inst).parameters
+                    cdf_param_list = [p for p in instance_parameters if p.name==param_name]
+                    if len(cdf_param_list) == 0:
+                        warn(f'No CDF parameter {param_name} exist in {cell}')
+                    else:
+                        cdf_param = cdf_param_list[0]
+                        param_type = cdf_param.param_type
+                        if param_type == 'string':
+                            value = num2string(param.value, decimals=3)
+                        if param_type == 'cyclic':
+                            # Hack for cyclic parameters
+                            param_type = 'string'
+                        try:
+                            ws.db.replace_prop(inst, param_name, param_type, value)
+                            # Invoke callbacks
+                            ws["abInvokeInstCdfCallbacks"](inst)
+                        except Exception as e:
+                            warn(f'Failed to replace CDF param {param_name}. Message: \n{e}')
+
+
+            # Connect wires to pins
+            for term in inst.master.terminals:
+                # Find the name of the net that the term is connected to
+                try:
+                    net_name = [t.net.name for t in cell.get_all_terminals() if t.name == term.name][0]
+                except:
+                    # Workaround to handle the case when the cell is extracted from netlist and do not have the same terminal names as Cell
+                    net_name = [t.net.name for t in cell.get_all_terminals() if t.net.name == term.name][0]
+                pin_corners = term.pins[0].fig.b_box
+                pin_center = Box(origin=pin_corners[0], opposite_corner=pin_corners[1]).center() + inst_origin
+                # Draw wire
+                wire_id_list = ws.sch.create_wire(cell_view, "draw", "full", [pin_center.to_list(), (pin_center + (0.05, 0)).to_list()], 0.0625, 0.0625, 0.0)
+                # Create wire label
+                ws.sch.create_wire_label(cell_view, wire_id_list[0],  (pin_center + (0.125, 0)).to_list(), net_name, "lowerLeft", "R0", "stick", 0.0625, None)
+
+        # Check and save
+        ws.sch.check(cell_view)
+        ws.db.save(cell_view)
+
+
+
+
 class LayoutCell(Cell):
     """
     Extends Cell with functionality for generating Layout
@@ -627,6 +800,7 @@ class LayoutCell(Cell):
         self.layout_parameters = kwargs.get('layout_parameters', {})
 
     def add_layout_parameter(self, key, value):
+        # Parameters for Spice netlist file
         self.layout_parameters[key] = value
 
     def _get_lay_cic_spice_subckt_string(self):
@@ -901,38 +1075,6 @@ class LayoutCell(Cell):
         }
         self.append_cell_dict(vr_dict)
 
-    def get_iname(self, base='X', new_col=False):
-        """
-        Return a valid instance name with given base.
-        If X1 and X2 already exist in cell, then the next valid name is X3
-
-        If new_col=True then a char will be appended before numerical index
-
-        If stack_v: append numeric value to stack vertically. Else, append alphabetic to stack horisontally
-        """
-        # First determine base depending on col
-        current_col = 'A' # Alphabetical index, gives col
-        for iname, c in self.subcells.items():
-            # Check for alphabetical index
-            split_base = iname.split(base)
-            if len(split_base) > 1:
-                # If the instance name of subcell contains base, assume the next char is the alphabetic col index
-                # Ex: If base=MN and iname is MNB3, then the next col char should be C
-                col = split_base[1][0]
-                if ord(col) > ord(current_col):
-                    current_col = col
-        if new_col:
-            current_col = chr(ord(current_col) + 1)
-        colbase = f'{base}{current_col}'
-        current_index = -1 # Numerical index, gives horisontal stacking
-        for iname, c in self.subcells.items():
-            # Get numerical index of subcell
-            ibase, index = re.split(r'(^[^\d]+)', iname)[1:]
-            if ibase == colbase:
-                current_index = int(index)
-        current_index = current_index + 1
-        return f'{base}{current_col}{current_index}'
-
 class Design(Cell):
     """
     Top-level design class
@@ -952,9 +1094,12 @@ class Design(Cell):
         return s
 
     def get_parameter_string(self):
-        s = "parameters"
-        for p, value in self.parameters.items():
-            s += " {}={}".format(p, num2string(value))
+        # s = "parameters"
+        # for p, value in self.parameters.items():
+        #     s += " {}={}".format(p, num2string(value))
+        s = "parameters "
+        for name, param in self.parameters.items():
+            s += f"{param.get_value_str()} "
         return s
 
     def rewrite_netlist(self):
@@ -1009,7 +1154,6 @@ class Design(Cell):
     def get_netlist_string(self):
         self.rewrite_netlist()
         return self.netlist_string
-
 
 
 class PatternCell(LayoutCell):
