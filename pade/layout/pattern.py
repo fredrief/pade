@@ -1,155 +1,6 @@
+from pade.layout.geometry import Coordinate, Vector
 import numpy as np
-import json
-from skillbridge import Workspace
 import copy
-
-class Coordinate:
-    def __init__(self, coord) -> None:
-        # Assume subscriptable input
-        self.x = np.round(float(coord[0]), decimals=3)
-        self.y = np.round(float(coord[1]), decimals=3)
-
-    def to_skill(self):
-        return f'{self.x}:{self.y}'
-
-    def to_list(self, decimals=3):
-        return [np.round(self.x, decimals=decimals), np.round(self.y, decimals=decimals)]
-
-    def __round__(self, ndigits=0):
-        return Coordinate((round(self[0], ndigits), round(self[1], ndigits)))
-
-    def __getitem__(self, item):
-        if item == 0:
-            return self.x
-        elif item == 1:
-            return self.y
-        else:
-            raise ValueError(f'Invalid index for coordinate {item}')
-
-    def __add__(self, other):
-        """
-        Assumes other is subscriptable
-        """
-        if other is None:
-            return self
-        try:
-            return Coordinate((self[0] + other[0], self[1] + other[1]))
-        except:
-            return Coordinate((self[0] + other, self[1] + other))
-
-    def __sub__(self, other):
-        """
-        Assumes other is subscriptable
-        """
-        if other is None:
-            return self
-        try:
-            return Coordinate((self[0] - other[0], self[1] - other[1]))
-        except:
-            return Coordinate((self[0] - other, self[1] - other))
-
-    def __str__(self) -> str:
-        return f'Coordinate({self[0]},{self[1]})'
-
-    def __repr__(self) -> str:
-        return f'Coordinate({self[0]},{self[1]})'
-
-
-class Vector:
-    """
-    Vector class
-    Stores only a np array
-    """
-    def __init__(self, *args) -> None:
-        if len(args) == 1:
-            vector = args[0]
-            # Assume subscriptable
-            self.array = np.array(
-                [vector[0], vector[1]])
-        elif len(args) == 2:
-            # assume initialization by start and stop
-            start = args[0]
-            stop = args[1]
-            self.array = np.array([stop[0]-start[0], stop[1]-start[1]])
-        self.array = np.round(self.array, decimals=3)
-
-    def __getitem__(self, item):
-        return self.array[item]
-
-    def __add__(self, other):
-        if other is None:
-            return self
-        try:
-            # if other is subscriptable
-            return Vector((self[0] + other[0], self[1] + other[1]))
-        except:
-            # Assume scalar
-            return Vector((self[0] + other, self[1] + other))
-
-    def __sub__(self, other):
-        if other is None:
-            return self
-        return self + (-1*other)
-
-    def __mul__(self, other):
-        if other is None:
-            return None
-        return Vector(self.array*other)
-
-    def __truediv__(self, other):
-        return Vector(self.array/other)
-
-    def __neg__(self):
-        return Vector(-self.array)
-
-    def __str__(self) -> str:
-        return f'Vector({self[0]},{self[1]})'
-
-    def __repr__(self) -> str:
-        return f'Vector({self[0]},{self[1]})'
-
-    def x(self):
-        return self.array[0]
-
-    def y(self):
-        return self.array[1]
-
-    def to_coordinate(self):
-        return Coordinate(self)
-
-    def rotate(self, angle):
-        """
-        Rotate vector by specified angle
-        Returns the rotated version of the vector
-        """
-        # Rotation matrix:
-        angle_rad = np.deg2rad(angle)
-        Rmat = np.array([[np.cos(angle_rad), -np.sin(angle_rad)], [np.sin(angle_rad), np.cos(angle_rad)]])
-        rot_array = Rmat@self.array
-        return Vector(np.round(rot_array, decimals=4))
-
-    def quadrant(self):
-        """
-        Return the quadrant
-        """
-        if self[0] > 0 and self[1] > 0:
-            return 1
-        elif self[0] < 0 and self[1] > 0:
-            return 2
-        elif self[0] < 0 and self[1] < 0:
-            return 3
-        else:
-            return 4
-
-
-class Line:
-    """
-    A line is a vector + a start cooridinate
-    """
-    def __init__(self, start: Coordinate, vector: Vector) -> None:
-        self.start = start
-        self.vector = vector
-
 
 class Box:
     """
@@ -175,6 +26,12 @@ class Box:
                 diagonal = Vector(diagonal)
             self.origin = origin
             self.diagonal = diagonal
+        elif all([(s in kwargs) for s in ['center', 'diagonal']]):
+            diagonal = kwargs['diagonal']
+            if not isinstance(diagonal, Vector):
+                diagonal = Vector(diagonal)
+            self.diagonal = diagonal
+            self.set_origin(center=kwargs['center'])
         elif all([(s in kwargs) for s in ['origin', 'opposite_corner']]):
             # Initialize by opposite corners
             origin = kwargs['origin']
@@ -365,6 +222,18 @@ class Box:
     def center(self):
         return self.origin + self.diagonal/2
 
+    def center_left(self):
+        return self.lower_left() + (0, self.h()/2)
+
+    def center_right(self):
+        return self.lower_right() + (0, self.h()/2)
+
+    def center_top(self):
+        return self.upper_left() + (self.w()/2, 0)
+
+    def center_bottom(self):
+        return self.lower_left() + (self.w()/2, 0)
+
     def to_list(self, decimals=3):
         return [self.origin.to_list(decimals=decimals), self.opposite_corner().to_list(decimals=decimals)]
 
@@ -414,7 +283,7 @@ class Pattern:
     Absolute position of box origin is handled when added to pattern
     """
     def __init__(self,  **kwargs) -> None:
-        self.layer_name = kwargs.get('layer_name')
+        self.layer = kwargs.get('layer')
         self.purpose = kwargs.get('purpose')
         self.box_list = []
         self.origin = Coordinate((0,0))
@@ -430,13 +299,13 @@ class Pattern:
 
 
     def __str__(self) -> str:
-        if self.layer_name is None and self.purpose is None and self.origin is None:
+        if self.layer is None and self.purpose is None and self.origin is None:
             return f"Blank Pattern with {len(self.box_list)} boxes"
         else:
-            return f"Pattern {self.layer_name} {self.purpose} at {self.origin} with {len(self.box_list)} boxes"
+            return f"Pattern {self.layer} {self.purpose} at {self.origin} with {len(self.box_list)} boxes"
 
     def __repr__(self) -> str:
-        return f"Pattern {self.layer_name} {self.purpose} at {self.origin} with {len(self.box_list)} boxes"
+        return f"Pattern {self.layer} {self.purpose} at {self.origin} with {len(self.box_list)} boxes"
 
     def __mul__(self, other):
         if other is None:
@@ -513,8 +382,8 @@ class Pattern:
         for box in self.box_list:
             area += box.area()
 
-    def set_layer(self, layer_name):
-        self.layer_name = layer_name
+    def set_layer(self, layer):
+        self.layer = layer
 
     def set_purpose(self, purpose):
         self.purpose = purpose
@@ -654,281 +523,3 @@ class Pattern:
             translation = -Vector(p0, p1)
             pattern.translate(translation, in_place=True)
         return pattern
-
-
-
-
-
-
-class Path:
-    """
-    Path segment. Only straight wire in single layer
-    """
-    def __init__(self, layer_name, **kwargs) -> None:
-        self.layer_name = layer_name
-        self.start = kwargs.get('start')
-        self.stop = kwargs.get('stop')
-        self.width = kwargs.get('width')
-        self.begin_style = kwargs.get('begin_style')
-        self.end_style = kwargs.get('end_style')
-
-
-class Route:
-    """
-    Route. May contain several path segments and vias
-    """
-    def __init__(self) -> None:
-        self.path_list = []
-        self.via_list = []
-
-    def __str__(self) -> str:
-        return f"Route with {len(self.path_list)} Paths"
-
-    def add_path(self, path):
-        self.path_list.append(path)
-
-    def add_via(self, via):
-        self.via_list.append(via)
-
-
-
-
-class Via:
-    """
-    Via. May have multiple rows and columns of vias
-    """
-    def __init__(self, via_def_name, **kwargs) -> None:
-        self.via_def_name = via_def_name
-        self.n_rows = kwargs.get('n_rows')
-        self.n_cols = kwargs.get('n_cols')
-        self.center = kwargs.get('center')
-
-        if 'box' in kwargs:
-            self.box = kwargs['box']
-            self.center = self.box.center()
-
-        # Index of via spacing rules in tech file parameter list
-        # Might be tech-dependent?
-        self.via_width_rule_index = 1
-        self.via2via_space_rule_index = 5
-        self.via2bound_space_rule_index = 6
-
-    def __str__(self) -> str:
-        return f"Via {self.via_def_name} with {self.n_rows} and {self.n_cols} columns"
-
-    def parse_tech_file_rules(self, tech_file_param_list):
-        # Calculate required number of cols and rows based on box
-        self.via_width = tech_file_param_list[self.via_width_rule_index]
-        # via2via space is a list. Assume rules for W and H are equal and select first entry
-        self.via2via_space = tech_file_param_list[self.via2via_space_rule_index][0]
-        # via2bound space is a list. Assume rules for W and H are equal and select first entry
-        self.via2bound_space = tech_file_param_list[self.via2bound_space_rule_index][0]
-
-    def get_via_params(self, tech_file_param_list=None, **kwargs):
-        if tech_file_param_list is not None:
-            self.parse_tech_file_rules(tech_file_param_list)
-            via_unit_width = self.via_width + self.via2via_space
-            self.n_cols = int((self.box.w() - self.via_width - 2*self.via2bound_space) / via_unit_width) + 1
-            self.n_rows = int((self.box.h() - self.via_width - 2*self.via2bound_space) / via_unit_width) + 1
-
-        return [["cutRows", self.n_rows], ["cutColumns", self.n_cols]]
-
-
-
-class Port:
-    """
-    Port on Layout. Generates a figure(rect), net, terminal and a pin
-    """
-    def __init__(self, name, layer_name, position, **kwargs) -> None:
-        self.layer_name = layer_name
-        self.name = name
-        self.position = Coordinate(position) # center of port
-        # set box for pin figure
-        if 'box' in kwargs:
-            self.box = copy.deepcopy(kwargs['box'])
-            self.box_width = self.box.w()
-        else:
-            self.box_width = kwargs.get('box_width', 0.2)
-            self.box = Box(diagonal=(self.box_width, self.box_width))
-        self.box.set_origin(center=self.position)
-
-    def __str__(self) -> str:
-        return f"Port {self.name} in {self.layer_name} at {self.position}"
-
-
-class LayoutItem:
-    """
-    This corresponds to a cell with a layout view in Virtuoso
-    """
-    def __init__(self, lib_name, cell_name, instance_name, **kwargs) -> None:
-        self.lib_name = lib_name
-        self.cell_name = cell_name
-        self.instance_name = instance_name
-
-        self.set_origin(kwargs.get('origin')) # Origin only applies to instance
-        self.set_orientation(kwargs.get('orientation'))
-        self.set_parameters(kwargs.get('parameters'))
-
-        self.pattern_list = kwargs.get('pattern_list', [])
-        self.instance_list = kwargs.get('instance_list', [])
-        self.route_list = kwargs.get('route_list', [])
-        self.port_list = kwargs.get('port_list', [])
-        self.via_list = kwargs.get('via_list', [])
-
-        self.ws = Workspace.open()
-        lib_id = self.ws.dd.get_obj(self.lib_name)
-        self.tech_file = self.ws.tech.get_tech_file(lib_id)
-
-    def __str__(self) -> str:
-        return f"LayoutItem {self.cell_name} at {self.origin} with {len(self.pattern_list)} Patterns"
-
-    def set_parameters(self, parameters):
-        self.parameters = parameters if not parameters is None else {}
-
-    def set_origin(self, origin):
-        self.origin = Coordinate(origin) if not origin is None else Coordinate((0,0))
-
-    def set_orientation(self, orientation):
-        self.orientation = orientation if not orientation is None else "R0"
-
-    def y_max(self):
-        return np.max(np.array([p.y_max() for p in self.pattern_list]))
-
-    def y_min(self):
-        return np.min(np.array([p.y_min() for p in self.pattern_list]))
-
-    def x_min(self):
-        return np.min(np.array([p.x_min() for p in self.pattern_list]))
-
-    def x_max(self):
-        return np.max(np.array([p.x_max() for p in self.pattern_list]))
-
-    def upper_right(self):
-        return Coordinate((self.x_max(), self.y_max()))
-
-    def upper_left(self):
-        return Coordinate((self.x_min(), self.y_max()))
-
-    def lower_left(self):
-        return Coordinate((self.x_min(), self.y_min()))
-
-    def lower_right(self):
-        return Coordinate((self.x_max(), self.y_min()))
-
-    def w(self):
-        return self.x_max() - self.x_min()
-
-    def h(self):
-        return self.y_max() - self.y_min()
-
-    def center(self):
-        """
-        Returns center defined as follows.
-        """
-        x_center = (self.x_max() + self.x_min()) / 2
-        y_center = (self.y_max() + self.y_min()) / 2
-        return Coordinate((x_center, y_center))
-
-    def add_pattern(self, pattern):
-        self.pattern_list.append(pattern)
-
-    def add_instance(self, instance):
-        """
-        Add to instance list and store as attribute
-        """
-        self.instance_list.append(instance)
-        setattr(self, instance.instance_name, instance)
-
-    def add_route(self, route):
-        self.route_list.append(route)
-
-    def add_port(self, port: Port):
-        """
-        Add port to port_list and store as attribute
-        """
-        self.port_list.append(port)
-        setattr(self, port.name, port)
-
-    def add_via(self, via):
-        self.via_list.append(via)
-
-    def add_via_from_pattern(self, via_def_name, pattern: Pattern):
-        """
-        Add vias that fill pattern region
-        """
-        for box in pattern.box_list:
-            via = Via(via_def_name, box=box)
-            self.add_via(via)
-
-    def add_enclosure(self, layer_name, purpose, margin=0):
-        """
-        Add new pattern that enclose self with the specified margin
-        """
-        p = Pattern(layer_name=layer_name, purpose=purpose, origin=self.lower_left())
-        p.add_box(Box(origin=self.lower_left()-margin ,opposite_corner=self.upper_right()+margin), absolute_position=True)
-        self.add_pattern(p)
-        return p
-
-    def get_parameter_list(self):
-        # TODO
-        pass
-
-    def print_layout(self, recursive=False):
-        """
-        Write Layout
-        """
-        cell_view = self.ws.db.open_cell_view_by_type(self.lib_name, self.cell_name, "layout", "maskLayout", "w")
-
-        # Write instances
-        for instance in self.instance_list:
-            # TODO: Support parameters
-            print(f'Instantiating: {instance}')
-            if recursive:
-                instance.print_layout(recursive=True)
-            self.ws.db.create_inst_by_master_name(cell_view, instance.lib_name, instance.cell_name, 'layout', instance.instance_name, instance.origin.to_list(), instance.orientation)
-
-
-        # Write patterns
-        for pattern in self.pattern_list:
-            print(f'Printing: {pattern}')
-            for box in pattern.box_list:
-                self.ws.db.create_rect(
-                    cell_view,
-                    [pattern.layer_name, pattern.purpose],
-                    box.to_list()
-                    )
-
-        # Write routes
-        for route in self.route_list:
-            print(f'Printing: {route}')
-            for path in route.path_list:
-                self.ws.db.create_path_seg(cell_view, path.layer_name, path.start.to_list(), path.stop.to_list(), path.width, path.begin_style, path.end_style)
-
-        # Write ports
-        for port in self.port_list:
-            print(f'Printing: {port}')
-            fig = self.ws.db.create_rect(cell_view, [port.layer_name, 'drawing'], port.box.to_list())
-            net = self.ws.db.create_net(cell_view, port.name)
-            self.ws.db.create_term( net, port.name, "inputOutput")
-            self.ws.db.create_pin(net, fig)
-            self.ws.db.create_label(cell_view, [port.layer_name, 'label'], port.position.to_list(), port.name, "centerCenter", "R0", "stick", port.box_width/5)
-
-        # Write Vias
-        print(f'Printing {len(self.via_list)} vias')
-        for via in self.via_list:
-            # Use tech file to find via rules
-            via_def_id = self.ws.tech.find_via_def_by_name(self.tech_file, via.via_def_name)
-            via_params = via.get_via_params(self.ws.db.get(via_def_id, 'params'))
-            self.ws.db.create_via(cell_view, via_def_id, via.center.to_list(), "R0", via_params)
-
-        self.ws.db.save(cell_view)
-
-
-
-
-
-
-
-
-
-
