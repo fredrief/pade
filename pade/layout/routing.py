@@ -1,5 +1,6 @@
 from pade.layout.geometry import *
 from pade.layout.pattern import Box
+from pade.schematic import Terminal
 from inform import warn
 import numpy as np
 import copy
@@ -31,7 +32,7 @@ class Path:
         return f"Path in {self.layer} from {self.start} to {self.stop}"
 
     def __repr__(self) -> str:
-        return self.__str__()()
+        return self.__str__()
 
     def set_begin_style(self, style):
         self.begin_style = style
@@ -65,6 +66,7 @@ class Route:
         self.width = None
         self.layer = None
         self.offset = kwargs.get('offset', 0)
+        self.offset_end = kwargs.get('offset_end', 0)
         self.net = kwargs.get('net')
         self.start_port = None
         self.end_port = None
@@ -83,6 +85,10 @@ class Route:
             # If port, use center
             self.stop = stop.box.center()
             self.end_port = stop
+            if self.width is None or self.layer is None:
+                # Use stop port box width(height) as routing width
+                self.width = min(stop.box.w(), stop.box.h())
+                self.layer = stop.layer
         else:
             self.stop = stop
 
@@ -137,26 +143,26 @@ class Route:
             center = p.start
         elif p.begin_style == 'truncate':
             direction = Vector(p.start, p.stop).normalize()
-            center = p.start + (p.width/2)*direction
+            center = p.start + direction*(p.width/2)
 
         for via_name in via_name_list:
             via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols)
-            self.add_via(via)
+            self._add_via(via)
 
     def add_via_end(self, via_name_list, n_rows=1, n_cols=2):
         p = self.path_list[-1]
         if p.end_style == 'extend':
             center = p.stop
-        elif p.begin_style == 'truncate':
+        elif p.end_style == 'truncate':
             direction = Vector(p.start, p.stop).normalize()
-            center = p.stop - (p.width/2)*direction
+            center = p.stop - direction*(p.width/2)
 
         center = self.path_list[-1].stop
         for via_name in via_name_list:
             via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols)
-            self.add_via(via)
+            self._add_via(via)
 
-    def add_via(self, via):
+    def _add_via(self, via):
         self.via_list.append(via)
 
     def route_vh(self):
@@ -173,6 +179,13 @@ class Route:
             # Update r_start
             r_start += (self.offset, 0)
 
+        p_end = None
+        if self.offset_end != 0:
+            # As this route ends horisontally, assume end offset is vertical
+            p_end = Path(self.layer, r_stop+(0, self.offset_end), dy=-self.offset_end, width=self.width)
+            # Update r_stop
+            r_stop += (0, self.offset_end)
+
         vector = r_stop - r_start
         dy=vector[1]
         dx=vector[0]
@@ -182,6 +195,8 @@ class Route:
         if not dx == 0:
             p2 = Path(self.layer, p1.stop, dx=dx, width=self.width)
             self.add_path(p2)
+        if not p_end is None:
+            self.add_path(p_end)
 
     def route_hv(self):
         """
@@ -198,15 +213,26 @@ class Route:
             # Update r_start
             r_start += (0, self.offset)
 
+        p_end = None
+        if self.offset_end != 0:
+            # As this route ends vertically, assume end offset is horisontal
+            p_end = Path(self.layer, r_stop+(self.offset_end,0), dx=-self.offset_end, width=self.width)
+            # Update r_stop
+            r_stop += (self.offset_end, 0)
+
         vector = r_stop - r_start
         dy=vector[1]
-        dx=vector[0] - self.width/2
+        dx=vector[0]
+        # dx = dx  - self.width/2 if dx > 0 else dx + self.width/2
         p1 = Path(self.layer, r_start, dx=dx, width=self.width)
         if not dx == 0:
             self.add_path(p1)
         if not dy == 0:
             p2 = Path(self.layer, p1.stop, dy=dy, width=self.width)
             self.add_path(p2)
+
+        if not p_end is None:
+            self.add_path(p_end)
 
     def route_h(self):
         """
@@ -290,7 +316,11 @@ class Port:
     Port on Layout. Generates a figure(rect), net, terminal and a pin
     """
     def __init__(self, name, *args, **kwargs) -> None:
-        self.name = name
+        if isinstance(name, Terminal):
+            self.name = name.name
+        else:
+            self.name = name
+
         if len(args) == 1 and isinstance(args[0], Route):
             route = args[0]
             self.layer = route.layer
@@ -310,7 +340,7 @@ class Port:
             self.layer = args[0]
             self.position = args[1]
             box_width = kwargs.get('box_width', 0.2)
-            self.box = Box(diagonal=(box_width, self.box_width))
+            self.box = Box(diagonal=(box_width, box_width))
         elif len(args) == 3:
             # Assume layer, position and box
             self.layer = args[0]

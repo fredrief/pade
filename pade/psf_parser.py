@@ -7,6 +7,7 @@ from numbers import Number
 import pandas as pd
 import numpy as np
 from inform import error, warn
+import re
 
 class PSFParser(object):
     """
@@ -31,6 +32,8 @@ class PSFParser(object):
                 Logger object
             mcrun: int
                 If running a montecarlo analysis, specify the run number. This will add to the parsed signal output
+            sim_name:
+                unique identifier for simulation
         """
         raw_files = ls(self.output_dir)
 
@@ -40,7 +43,7 @@ class PSFParser(object):
             if not self.is_valid_analysis(filename):
                 continue
             analysis_name = filename.split('.')[0]
-            self.logger.info(f'PARSING PSF FILE: {self.sim_name}/{filename}')
+            self.logger.info(f'PARSING PSF FILE: {filename} ({self.sim_name})')
             # Parsing might fail
             try:
                 psf = PSF(file)
@@ -71,10 +74,12 @@ class PSFParser(object):
         Check if analysis (filename) is a valid result file
         """
         res = True
-        valid_types = ['tran', 'ac', 'dc', 'info', 'stb', 'noise']
+        valid_types = ['tran', 'ac', 'dc', 'info', 'stb', 'noise', 'pss', 'pnoise']
         # logFile etc..
         if len(filename.split('.')) < 2:
             res = False
+        elif 'margin.stb' in filename:
+            res = False # stb.margin not supported
         else:
             t = filename.split('.')[-1]
             res = t in valid_types
@@ -94,6 +99,15 @@ class PSFParser(object):
         else:
             warn(f'Signal {name} from analysis {analysis} not available. Returning NaN')
             return np.nan
+
+    def get_signal_list(self, sig_name_regex, analysis):
+        identifier = f'{self.sim_name}:{analysis}:{sig_name_regex}'
+        sig_list = []
+        for name, sig in self.signals.items():
+            if re.match(identifier, name):
+                sig_list.append(sig)
+        return sig_list
+
 
     def add_signal(self, signal):
         if isinstance(signal, Signal):

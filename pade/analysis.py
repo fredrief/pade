@@ -40,6 +40,49 @@ class Analysis:
             self.netlist_string += f"{param}={num2string(value)} "
         return self.netlist_string
 
+class pss(Analysis):
+    """
+    Periodic Steady-State
+    """
+    def __init__(self, nodes=None, name='pss', parameters={}):
+        self.nodes = nodes
+        self.autonomous = (nodes is not None)
+        super().__init__(name, type='pss', parameters=parameters)
+
+
+    def get_netlist_string(self):
+        # Overwrite function for writing netlist
+        self.netlist_string = f"{self.name} "
+        if self.nodes is not None:
+            self.netlist_string += f"{self.nodes[0]} {self.nodes[0]} "
+        self.netlist_string += f"{self.type} "
+        for param in self.parameters:
+            value = self.parameters[param]
+            self.netlist_string += f"{param}={num2string(value)} "
+        return self.netlist_string
+
+class pnoise(Analysis):
+    """
+    Periodic noise
+    """
+    def __init__(self, nodes=None, name='pnoise', parameters={}):
+        self.nodes = nodes
+        self.autonomous = (nodes is not None)
+        super().__init__(name, type='pnoise', parameters=parameters)
+
+
+    def get_netlist_string(self):
+        # Overwrite function for writing netlist
+        self.netlist_string = f"{self.name} "
+        if self.nodes is not None:
+            self.netlist_string += f"{self.nodes[0]} {self.nodes[0]} "
+        self.netlist_string += f"{self.type} "
+        for param in self.parameters:
+            value = self.parameters[param]
+            self.netlist_string += f"{param}={num2string(value)} "
+        return self.netlist_string
+
+
 class tran(Analysis):
     """
     Transient analysis

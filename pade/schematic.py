@@ -3,9 +3,6 @@ from pade.utils import num2string, get_kwarg, append_dict
 import re
 import json
 from inform import warn, debug
-from skillbridge import Workspace
-# from pade.layout.pattern import Box
-# from pade.layout.geometry import Coordinate
 
 class Terminal:
     """
@@ -182,6 +179,11 @@ class Cell:
                 # debug(f'Extracted cell {self.cell_name} from file {netlist_filename}')
             except Exception as e:
                 warn(f'Could not extract Cell {self.cell_name} from netlist.')
+
+        # For LPE netlist, do not parse, just return netlist
+        # This will be used in the get subckt function
+        self.lpe_netlist = kwargs.get('lpe_netlist')
+
         # Initialize subckt string
         self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
         # AHDL Filepath
@@ -296,11 +298,6 @@ class Cell:
         """
         return self.parameters[name].value
 
-
-
-
-
-
     def add_parameters(self, parameters):
         """
         Add parameters to design
@@ -329,6 +326,7 @@ class Cell:
         """
         self.subcells[cell.instance_name] = cell
 
+    #TODO:  I think this overlaps with get_subckts
     def get_subcells(self):
         """
         Returns a list of all unique subcells of this cell
@@ -575,10 +573,27 @@ class Cell:
             subckts = cell.append_subckt_list(subckts)
         return subckts
 
-    def get_subckt_string(self):
+    def get_spiceIn_subckt_string(self):
+        # SUBCKTS
+        s = ""
+        subckts = self.get_subckts()
+        for cell in subckts:
+            if cell.declare_subckt:
+                s += cell.get_subckt_string() + "\n"
+        s += self.get_subckt_string(remove_unconnected_terminals=False)
+        return s
+
+    def get_subckt_string(self, remove_unconnected_terminals=True):
         """
         Return sub circuit declaration string
         """
+        # If lpe_netlist is set, return directly
+        if self.lpe_netlist is not None:
+            s = ""
+            with open(self.lpe_netlist, 'r') as f:
+                for line in f.readlines():
+                    s += line
+            return s
         # Check if Cell as unconnected terminals
         ut_list = list(self.terminals.keys())
         for key in self.subcells:
@@ -603,7 +618,7 @@ class Cell:
         s += f"subckt {self.cell_name}"
         # TERMINALS
         for t in self.get_sorted_terminal_list():
-            if t.net is None:
+            if t.net is None and remove_unconnected_terminals:
                 warn(f'Terminal {t.get_name_from_top()} is not connected to a net. Will be removed.')
                 self.delete_terminal(t)
                 continue
@@ -676,109 +691,15 @@ class Cell:
             if t.net == net:
                 return t
 
-
-
-    def print_schematic(self, lib_list=[], recursive=False):
+    def set_library_on_all_cells(self):
         """
-        Print schematic to virtuoso using skillbridge
-        Assumes self and all subcells has lib_name set
-
-        lib_list: list of libraries to search for cells if cell does not have a lib_name set
-        recursive: Whether or not to recursively create schematics for subcells
+        Set the library of all subcells to self.lib_name
         """
-        ws = Workspace.open()
-        cell_view = ws.db.open_cell_view_by_type(self.lib_name, self.cell_name, 'schematic', 'schematic', 'w')
-
-        # Create pins
-        iopin_master = ws.db.open_cell_view("basic", "iopin", "symbol", None, "r")
-        for i in range(len(self.terminals)):
-            t = self.get_all_terminals()[i]
-            ws.sch.create_pin(cell_view, iopin_master, t.name, "inputOutput", None, [0, i*0.2], "R0")
-
-
-        # Create symbol if not already exists
-        if not ws.dd.get_obj(self.lib_name, self.cell_name, "symbol"):
-            ws.sch.view_to_view(self.lib_name, self.cell_name, self.lib_name, self.cell_name, "schematic", "symbol", "schSchemToPinList", "schPinListToSymbol")
-
-        # Create schematic for all subcells
-        if recursive:
-            subcell_list = self.get_subcells()
-            for cell in subcell_list:
-                # Print schematic of subcell
-                if cell.declare_subckt:
-                    cell.print_schematic(lib_list=lib_list)
-
-        # Create instances
-        x0 = 2
-        y0 = 0.4
-        symbol = None
         for iname, cell in self.subcells.items():
-            if not symbol is None:
-                symbol_width = symbol.b_box[1][0] - symbol.b_box[0][0]
-                symbol_height = symbol.b_box[1][1] - symbol.b_box[0][1]
-                x0 += symbol_width
-                # Spread out in vertical direction
-                if x0 > 15:
-                    x0 = 2
-                    y0 -= symbol_height
-            if not cell.lib_name is None:
-                # Find width of symbol to update x coordinate
-                symbol = ws.db.open_cell_view_by_type(cell.lib_name, cell.cell_name, "symbol")
-            else:
-                for lib_name in lib_list:
-                    symbol = ws.db.open_cell_view_by_type(lib_name, cell.cell_name, "symbol")
-                    if not symbol is None:
-                        cell.lib_name = lib_name
-                        break
-            if symbol is None:
-                raise RuntimeError(f'Could not create schematic for {self}. Failed to open {cell} because no library name is specified and I could not find the cell in any of these libraries: {lib_list}')
-
-            # Instantiate cell
-            inst = ws.db.create_inst_by_master_name(cell_view, cell.lib_name, cell.cell_name, 'symbol', iname, [x0,y0], "R0")
-            inst_origin = Coordinate(inst.transform[0])
-
-            # Modify CDF parameters
-            for param_name, param in cell.parameters.items():
-                if param.is_CDF:
-                    instance_parameters = ws.cdf.get_inst_CDF(inst).parameters
-                    cdf_param_list = [p for p in instance_parameters if p.name==param_name]
-                    if len(cdf_param_list) == 0:
-                        warn(f'No CDF parameter {param_name} exist in {cell}')
-                    else:
-                        cdf_param = cdf_param_list[0]
-                        param_type = cdf_param.param_type
-                        if param_type == 'string':
-                            value = num2string(param.value, decimals=3)
-                        if param_type == 'cyclic':
-                            # Hack for cyclic parameters
-                            param_type = 'string'
-                        try:
-                            ws.db.replace_prop(inst, param_name, param_type, value)
-                            # Invoke callbacks
-                            ws["abInvokeInstCdfCallbacks"](inst)
-                        except Exception as e:
-                            warn(f'Failed to replace CDF param {param_name}. Message: \n{e}')
-
-
-            # Connect wires to pins
-            for term in inst.master.terminals:
-                # Find the name of the net that the term is connected to
-                try:
-                    net_name = [t.net.name for t in cell.get_all_terminals() if t.name == term.name][0]
-                except:
-                    # Workaround to handle the case when the cell is extracted from netlist and do not have the same terminal names as Cell
-                    net_name = [t.net.name for t in cell.get_all_terminals() if t.net.name == term.name][0]
-                pin_corners = term.pins[0].fig.b_box
-                pin_center = Box(origin=pin_corners[0], opposite_corner=pin_corners[1]).center() + inst_origin
-                # Draw wire
-                wire_id_list = ws.sch.create_wire(cell_view, "draw", "full", [pin_center.to_list(), (pin_center + (0.05, 0)).to_list()], 0.0625, 0.0625, 0.0)
-                # Create wire label
-                ws.sch.create_wire_label(cell_view, wire_id_list[0],  (pin_center + (0.125, 0)).to_list(), net_name, "lowerLeft", "R0", "stick", 0.0625, None)
-
-        # Check and save
-        ws.sch.check(cell_view)
-        ws.db.save(cell_view)
-
+            # Give lib_name to cell
+            cell.lib_name = self.lib_name
+            # As cell to do the same for all subcells
+            cell.set_library_on_all_cells()
 
 
 

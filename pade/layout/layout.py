@@ -90,6 +90,7 @@ class LayoutItem:
         if margin != 0:
             pattern = pattern.enclosure(margin, layer=layer, purpose=purpose)
         self.pattern_list.append(pattern)
+        return pattern
 
     def add_instance(self, instance):
         """
@@ -157,6 +158,15 @@ class LayoutItem:
             if not any([i2.cell_name == inst.cell_name for i2 in inst_list]):
                 inst_list.append(inst)
         return inst_list
+
+    def instantiate(self, lay_class, cell, build, **kwargs):
+        """
+        Instantiate component. I build is True, the component will be built using the constructor, otherwise only instantiated from library
+        """
+        if build:
+            return self.print_instance(lay_class(cell, **kwargs))
+        else:
+            return LayoutInstance.from_cell(cell, self)
 
     # -----------------------------
     # Skill interaction functions
@@ -364,13 +374,22 @@ class LayoutInstance:
         # Bounding box:
         self.set_box()
 
+    def __str__(self) -> str:
+        return f"{self.cell_name} {self.name}"
 
     def __getattr__(self, item):
         try:
             # First try supers gettatr
             return super().__getattr__(item)
         except:
+            # Then check if it is an attribute of the instance
             attr = getattr(self.inst, item)
+            # If not, check if it is a property
+            if attr is None:
+                try:
+                    attr = self.get_property(item)
+                except:
+                    pass
             if attr is None:
                 try:
                     # First check if item is a port of the instance
@@ -394,6 +413,38 @@ class LayoutInstance:
                     pass
             return attr
 
+    def get_property(self, name):
+        for prop in self.inst.prop:
+            if prop.name == name:
+                return prop.value
+
+
+    def get_coordinate(self, iname_list, cname):
+        """
+        Return coordinate cname. Assumed to be an attribute of the last element of iname_list
+        Craches if it fails
+        """
+        # Descend down hierchy and update the transform
+        # Skip transform of self and the final element of iname_list
+        parent = self
+        for iname in iname_list:
+            instance = getattr(parent, iname)
+            if iname == iname_list[0]:
+                transform = instance.transform
+            # Skip transform of last element
+            elif not iname == iname_list[-1]:
+                transform = self.ws.db.concat_transform(instance.transform, transform)
+            parent = instance
+
+        translation = Vector(transform[0])
+        # Finally return coordinate
+        try:
+            c = getattr(parent, cname)
+            c = Coordinate(c)
+        except:
+            raise RuntimeError(f'Failed to get coordinate {cname} from {iname_list} in {self}')
+        return c + translation
+
 
     def set_box(self):
         """
@@ -407,10 +458,12 @@ class LayoutInstance:
         Concatenate new transform with parent transform
         """
         if not self.parent_transform is None:
-            self.transform = self.ws.db.concat_transform(self.parent_transform, transform)
+            self.transform = self.ws.db.concat_transform(transform, self.parent_transform)
         else:
             self.transform = transform
 
+    def set_property(self, name, value):
+        self.ws.db.setq(self.inst, value, name)
 
     def set_origin(self, origin):
         old_trans = self.inst.transform
@@ -437,6 +490,16 @@ class LayoutInstance:
         """
         # Calculate translation in y-direction
         translation = Vector([self.box.x_min(), self.box.y_min()], [other.box.x_min(), other.box.y_max() + margin])
+        self.translate(translation)
+
+    def align_below(self, other , margin=0):
+        """
+        Place self below of other with specified margin
+        """
+        # Calculate translation in y-direction
+        translation = Vector(
+            [self.box.x_min(), self.box.y_max()],
+            [other.box.x_min(), other.box.y_min() - margin])
         self.translate(translation)
 
 

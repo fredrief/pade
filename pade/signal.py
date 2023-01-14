@@ -46,9 +46,9 @@ def sum(sig):
 
 
 @implements(np.angle)
-def angle(sig):
+def angle(sig, **kwargs):
     "Implementation of np.angle for Signal objects"
-    return Signal(np.angle(sig.trace), sig.unit, f'/_({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
+    return Signal(np.angle(sig.trace, **kwargs), sig.unit, f'/_({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
 
 @implements(np.conjugate)
 def conjugate(sig):
@@ -96,6 +96,8 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
              analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
 
     def __repr__(self):
+        if self.unit == '':
+            return f'{num2string(self.trace, decimals=2)}'
         return "{:.2f~P}".format(self.to_quantity())
 
     def __len__(self):
@@ -194,7 +196,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         return np.nan
 
 
-    def at(self, x_sig, x_val, name=None):
+    def at(self, x_sig, x_val, name=None, **kwargs):
         """
             Interpolate self as function of x_sig, at x_val
         """
@@ -202,7 +204,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         x_sig = x_sig.trace if isinstance(x_sig, Signal) else x_sig
 
         try:
-            trace = interp1d(x_sig, self.trace)(x_val)
+            trace = interp1d(x_sig, self.trace, **kwargs)(x_val)
         except ValueError:
             trace = np.nan
         try:
@@ -215,7 +217,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         """
             Return index corresponding to value of self that is closest to xval
         """
-        idx = (np.abs(self.trace - x_val)).argmin()
+        idx = int((np.abs(self.trace - x_val)).argmin())
         return idx
 
     def grad(self, x, name=None):
@@ -225,6 +227,27 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         name = name if name else f"d{self.name}/d{x.name}"
         trace = np.gradient(self.trace, x.trace)
         return Signal(trace, self.unit, name, analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+
+    def integrate(self, sweep, start=0, stop=-1, name=None):
+        """
+            Integrate self wrt sweep
+            start, stop: index
+        """
+        name = name if name else f"I({self.name})d{sweep.name}"
+        unit = (self[0]*sweep[0]).unit
+        res = np.trapz(self.trace[start:stop], x=sweep.trace[start:stop])
+        return Signal(res, unit, name, self.analysis, self.simulation)
+
+    def average(self, sweep, start=0, stop=-1, name=None):
+        """
+            Compute avg of self wrt sweep
+            start, stop: index
+        """
+        name = name if name else f"I({self.name})d{sweep.name}"
+        I = self.integrate(sweep, start=start, stop=stop).trace
+        sweep_interval = sweep.trace[stop-1] - sweep.trace[start]
+        return Signal(I/sweep_interval, self.unit, name, self.analysis, self.simulation)
+
 
     def set_status(self, status):
         """

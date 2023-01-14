@@ -13,12 +13,12 @@ class switch(Cell):
         super().__init__('switch', instance_name, parent_cell, library_name="analog_lib", declare=True)
         # Add terminals
         self.add_multiple_terminals(['Np', 'Nm', 'NCp', 'NCm'])
-        self.parameters = {
+        self.add_parameters({
             'vt1': num2string(vt1),
             'vt2': num2string(vt2),
             'ropen': num2string(ropen),
             'rclosed': num2string(rclosed),
-        }
+        })
         sw_params = {
             'vt1': 'vt1',
             'vt2': 'vt2',
@@ -47,7 +47,7 @@ class relay(Cell):
         self.set_parameter('vt2', get_kwarg(parameters, 'vt1', 0.7))
 
         for key in parameters:
-            self.parameters[key] = parameters[key]
+            self.set_parameter(key, parameters[key])
 
 class transformer(Cell):
     """
@@ -74,10 +74,10 @@ class ideal_balun(Cell):
         # Call super init
         super().__init__('ideal_balun', instance_name, parent_cell, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("d")
-        self.add_terminal("c")
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.d = self.add_terminal("d")
+        self.c = self.add_terminal("c")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add subcells
         k0 = transformer('K0', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'p', 'c'])
         k1 = transformer('K1', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'c', 'n'])
@@ -92,10 +92,10 @@ class res(Cell):
         # Call super init
         super().__init__('resistor', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'r': num2string(R)}
+        self.add_parameters({'r': num2string(R)})
 
 class cap(Cell):
     """
@@ -106,10 +106,10 @@ class cap(Cell):
         # Call super init
         super().__init__('capacitor', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'c': num2string(C)}
+        self.add_parameters({'c': num2string(C)})
 
 class idc(Cell):
     """
@@ -120,10 +120,10 @@ class idc(Cell):
         # Call super init
         super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'dc': num2string(idc), 'type': 'dc'}
+        self.add_parameters({'dc': num2string(idc), 'type': 'dc'})
 
 class vsin(Cell):
     """
@@ -134,12 +134,12 @@ class vsin(Cell):
         # Call super init
         super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
+        self.add_parameters({'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'})
         for key in kwargs:
-            self.parameters[key] = kwargs[key]
+            self.set_parameter(key, kwargs[key])
 
 class isin(Cell):
     """
@@ -150,12 +150,12 @@ class isin(Cell):
         # Call super init
         super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'type': 'sine', 'sinedc': num2string(idc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'}
+        self.add_parameters({'type': 'sine', 'sinedc': num2string(idc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'})
         for key in kwargs:
-            self.parameters[key] = kwargs[key]
+            self.set_parameter(key, kwargs[key])
 
 
 class ipulse(Cell):
@@ -167,12 +167,12 @@ class ipulse(Cell):
         # Call super init
         super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'val0': num2string(i1), 'val1': num2string(i2), 'period': num2string(per), 'type': 'pulse'}
+        self.add_parameters({'val0': num2string(i1), 'val1': num2string(i2), 'period': num2string(per), 'type': 'pulse'})
         for p in parameters:
-            self.parameters[p] = parameters[p]
+            self.set_parameter(p, parameters[p])
 
 class vdc(Cell):
     """
@@ -183,12 +183,12 @@ class vdc(Cell):
         # Call super init
         super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'dc': num2string(vdc), 'type': 'dc'}
+        self.add_parameters({'dc': num2string(vdc), 'type': 'dc'})
         for key in kwargs:
-            self.parameters[key] = kwargs[key]
+            self.set_parameter(keym, kwargs[key])
 
 
 class vccs(Cell):
@@ -205,7 +205,7 @@ class vccs(Cell):
         self.add_terminal("in_p")
         self.add_terminal("in_n")
         # Add properties
-        self.parameters = {'type': 'vccs', 'gm': num2string(gm)}
+        self.add_parameters({'type': 'vccs', 'gm': num2string(gm)})
 
 class vcvs(Cell):
     """
@@ -221,7 +221,7 @@ class vcvs(Cell):
         self.add_terminal("in_p")
         self.add_terminal("in_n")
         # Add properties
-        self.parameters = {'gain': num2string(gain)}
+        self.add_parameters({'gain': num2string(gain)})
 
 class vpulse(Cell):
     """
@@ -232,19 +232,19 @@ class vpulse(Cell):
         # Call super init
         super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         # Add properties
-        self.parameters = {'type': 'pulse', 'val0': num2string(val0), 'val1': num2string(val1), 'period': num2string(period), 'mag': 1}
+        self.add_parameters({'type': 'pulse', 'val0': num2string(val0), 'val1': num2string(val1), 'period': num2string(period), 'mag': 1})
         # Add optional properties
         if delay is not None:
-            self.parameters['delay'] = num2string(delay)
+            self.set_parameter('delay', num2string(delay))
         if rise is not None:
-            self.parameters['rise'] = num2string(rise)
+            self.set_parameter('rise', num2string(rise))
         if fall is not None:
-            self.parameters['fall'] = num2string(fall)
+            self.set_parameter('fall', num2string(fall))
         if width is not None:
-            self.parameters['width'] = num2string(width)
+            self.set_parameter('width', num2string(width))
 
 
 class vpwl(Cell):
@@ -258,16 +258,16 @@ class vpwl(Cell):
         # Call super init
         super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("p")
-        self.add_terminal("n")
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
         wave_str_list = [str(w) for w in wave]
         # Add properties
         wave_str = "[" + ' '.join(wave_str_list) + ']'
-        self.parameters = {'type': 'pwl', 'wave': wave_str}
+        self.add_parameters({'type': 'pwl', 'wave': wave_str})
         # Add optional properties
         # V0 (net2 net1) vsource type=pwl wave=[ 0 0 1u 1 2u 2 ]
         for key, value in kwargs.items():
-            self.parameters[key] = value
+            self.set_parameter(key, value)
 
 
 
@@ -280,12 +280,12 @@ class bsource(Cell):
         # Call super init
         super().__init__('bsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_terminal("n")
-        self.add_terminal("p")
+        self.n = self.add_terminal("n")
+        self.p = self.add_terminal("p")
         # Add properties
-        self.parameters[f'{output}'] = f'{expression}'
+        self.set_parameter(f'{output}', f'{expression}')
         for key in parameters:
-            self.parameters[key] = parameters[key]
+            self.set_parameter(key, parameters[key])
 
 class diffstbprobe(Cell):
     """
@@ -296,8 +296,8 @@ class diffstbprobe(Cell):
         # Call super init
         super().__init__('diffstbprobe', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
-        self.add_multiple_terminals(['in1', 'in2', 'out1', 'out2'])
+        self.in1, self.in2, self.out1, self.out2 = self.add_multiple_terminals(['in1', 'in2', 'out1', 'out2'])
         self.include_filepath = filepath
         # Add properties
         for key in parameters:
-            self.parameters[key] = parameters[key]
+            self.set_parameter(key, parameters[key])

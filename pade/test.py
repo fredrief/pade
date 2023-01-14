@@ -20,7 +20,6 @@ class Test:
         self.expressions = expressions
         self.corner = get_kwarg(kwargs, 'corner')
         self.sim_name = get_kwarg(kwargs, 'sim_name', self.corner.name)
-        self.dir_name = get_kwarg(kwargs, 'dir_name', self.sim_name)
         self.run_index = get_kwarg(kwargs, 'run_index', 0)
         self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
@@ -33,7 +32,7 @@ class Test:
         self.output_selections = self.get_output_selections(self.output_selections, expressions)
 
         # keep all paths and directories at the same place
-        self.sim_data_dir = to_path(self.project_root_dir, f"sim_data", self.dir_name)
+        self.sim_data_dir = to_path(self.project_root_dir, f"sim_data", self.sim_name, self.corner.name)
         self.log_dir = to_path(self.sim_data_dir,"logs")
         self.netlist_dir = to_path(self.sim_data_dir,"netlists")
         self.res_dir = to_path(self.sim_data_dir,"results")
@@ -98,7 +97,7 @@ class Test:
                 If True, the simulation will not run if an identical netlist does already exist
         """
         sim = self.simulator
-        parser = PSFParser(self.logger, self.output_dir, self.sim_name)
+        parser = PSFParser(self.logger, self.output_dir, f'{self.sim_name}_{self.corner.name}')
         sim.run(cache=cache)
         # Plot using skill
         if self.SkillPlot:
@@ -127,7 +126,7 @@ class Test:
                     try:
                         parser.get_signal(signal, analysis)
                     except:
-                        fatal(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {self.sim_name}')
+                        fatal(f'Signal not available for evaluation: Name {signal}, Analysis {analysis}, Simulation {self.sim_name} Corner {self.corner.name}')
         # EVALUATE
         self.evaluation = Evaluation(parser, expressions,
                             html_dir=self.html_dir, latex_dir=self.latex_dir)

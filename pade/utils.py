@@ -77,11 +77,11 @@ def num2string(val, asint=False, decimals=8, nodot=False):
     # Format
     numstring = ""
     if asint or decimals < 1 or isinstance(val, int):
-        numstring = f'{int(val)}' + prefix
+        numstring = f'{round(val)}' + prefix
     elif nodot:
-        val0 = int(val)
+        val0 = round(val)
         val1 = val-val0
-        val1 = int(np.ceil(val1*10**(decimals)))
+        val1 = round(np.ceil(val1*10**(decimals)))
         numstring = f'{val0}{prefix}'
         if val1 != 0:
             if prefix == '':
@@ -97,6 +97,24 @@ def num2string(val, asint=False, decimals=8, nodot=False):
         width = 0
         numstring = f'{val:{width}.{precision}}' + prefix
     return numstring
+
+
+def string2num(s_val):
+
+    # Find base and prefix
+    exp = 0
+    prefix = s_val[-1]
+    base_val = s_val[:-1]
+
+    if prefix == 'n':
+        exp = 1e-9
+    elif prefix == 'u':
+        exp = 1e-6
+
+    return base_val*exp
+
+
+
 
 def get_kwarg(dict, key, default=None):
     """ Returns dict[key] if exist else default """

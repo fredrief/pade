@@ -111,7 +111,7 @@ class Vector:
         return f'Vector({self[0]},{self[1]})'
 
     def normalize(self):
-        return Vector(self) / len(self)
+        return Vector(self) / (np.sqrt(self[0]**2 + self[1]**2))
 
     def x(self):
         return self.array[0]

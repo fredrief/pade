@@ -179,10 +179,10 @@ class Box:
 
 
     def w(self):
-        return self.diagonal[0]
+        return np.abs(self.diagonal[0])
 
     def h(self):
-        return self.diagonal[1]
+        return np.abs(self.diagonal[1])
 
     def opposite_corner(self):
         return self.origin + self.diagonal
@@ -242,8 +242,8 @@ class Box:
             self.origin = Coordinate(kwargs['origin'])
         elif 'center' in kwargs:
             center = kwargs['center']
-            x0 = center[0] - self.w()/2
-            y0 = center[1] - self.h()/2
+            x0 = center[0] - self.diagonal[0]/2
+            y0 = center[1] - self.diagonal[1]/2
             self.origin = Coordinate((x0, y0))
 
     def area(self):

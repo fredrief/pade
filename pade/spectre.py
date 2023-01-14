@@ -178,7 +178,7 @@ class Spectre(object):
         self.logger.info(f'Starting spectre simulation.\nCommand: {popen_cmd}')
 
         # Run sim
-        self.logger.info(f'Simulating: {corner.name}')
+        self.logger.info(f'Simulating: {self.sim_name}')
         log_file = to_path(self.log_dir, 'spectre_sim.log')
         # Progress bar
         self.tq = tqdm(total=100, leave=False, position=self.tqdm_pos)
@@ -197,7 +197,7 @@ class Spectre(object):
                     if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
                         continue
                     self.tq.update(progress-p0)
-                    self.tq.set_description(f'{analysis} {self.sim_name}')
+                    self.tq.set_description(f'{analysis} {corner.name}')
                     p0 = progress
                     # Close tq
             self.tq.close()

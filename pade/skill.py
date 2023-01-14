@@ -15,7 +15,7 @@ class SkillSignal:
         """
         Prints the definition
         """
-        return f'{self.name} = {self.data_access}("{self.spectre_name}" ?result "{self.analysis}-{self.analysis}")'
+        return f'{self.name} = {self.data_access}("{self.spectre_name}" ?result "{self.analysis}")'
 
 class SkillExpr:
     """
