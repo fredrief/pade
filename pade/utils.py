@@ -2,8 +2,7 @@ import numpy as np
 import numpy.linalg as nla
 import os
 import sys
-import logging
-from pade import info, display, warn, error, fatal, ureg
+from pade import *
 from shlib.shlib import to_path, mkdir
 
 def append_dict(d1, d2):
@@ -114,27 +113,9 @@ def string2num(s_val):
     return base_val*exp
 
 
-
-
 def get_kwarg(dict, key, default=None):
     """ Returns dict[key] if exist else default """
     return dict[key] if key in dict else default
-
-def init_logger(logf=None, name='cbadc'):
-    logger = logging.getLogger(name)
-    logger.handlers = [] # To diable stdout
-    logger.setLevel(logging.INFO)
-    if logf is not None:
-        handler = logging.FileHandler(logf, 'w')
-        handler.setLevel(logging.INFO)
-    else:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(logging.INFO)
-    formatstr = '%(asctime)s - %(levelname)s\n%(message)s\n'
-    formatter = logging.Formatter(formatstr)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    return logger
 
 
 # File handling

@@ -1,9 +1,7 @@
 from pade.signal import Signal
-from pade import ureg, Q_
+from pade import *
 import numpy as np
-import numpy.lib.mixins
 import pandas as pd
-import copy
 from shlib import to_path, mkdir
 class Specification:
     """
@@ -24,8 +22,7 @@ class Specification:
         if isinstance(log_func, str):
             log_func = log_func.strip()
             if not len(values) == len(log_func.split(' ')):
-                self.logger.error('Number of operators must equal number of values')
-                quit()
+                fatal('Number of operators must equal number of values')
             try:
                 if len(log_func.split(' ')) == 1:
                     log_func = eval(f'lambda x,y: x {log_func} y')
@@ -34,11 +31,9 @@ class Specification:
                     f2 = log_func.split(' ')[1]
                     log_func = eval(f'lambda x,y,z: y {f1} x {f2} z')
             except SyntaxError:
-                self.logger.error(f'Invalid logic function: {log_func}')
-                quit()
+                fatal(f'Invalid logic function: {log_func}')
         else:
-            self.logger.error(f'Logic function: {log_func} is not a string')
-            quit()
+            fatal(f'Logic function: {log_func} is not a string')
         self.log_func = log_func
         self.values = values
 
@@ -189,47 +184,3 @@ class Evaluation:
 
                 summary_dict[name].append(eval_res)
         self.summary = pd.DataFrame(summary_dict)
-
-    def to_html(self):
-        """
-        Generate HTML table output
-        TODO: Color styling
-        """
-        if self.results is None:
-            self.logger.warning('Cannot create table, no results available')
-            return
-        if self.html_dir is None:
-            self.logger.warning('Cannot create table, no html output specified')
-            return
-        # Create directory if it does not exist
-        mkdir(self.html_dir)
-        # Formatter:
-        htmlstr = lambda s: '{:.2f~P}'.format(s) if not isinstance(s, str) else s
-        if not self.results is None:
-            formatters = {}
-            formatters[self.parser.sim_name] = htmlstr
-            html_filename = to_path(self.html_dir, 'results.html')
-            self.results.to_html(html_filename, formatters=formatters, index=True,)
-        if not self.summary is None:
-            formatters = {}
-            for stat in self.summary_statistics:
-                formatters[stat] = htmlstr
-            html_filename = to_path(self.html_dir, 'summary.html')
-            self.summary.to_html(html_filename, formatters=formatters, index=True,)
-
-    def to_latex(self):
-        """
-        Generate Latex table output
-        """
-        if self.results is None:
-            self.logger.warning('Cannot create table, no results available')
-            return
-        if self.latex_dir is None:
-            self.logger.warning('Cannot create table, no latex output specified')
-            return
-        # Formatter:
-        latexstr = lambda s: '${:.2f~Lx}$'.format(s)
-        formatters = {}
-        formatters[self.parser.sim_name] = latexstr
-        latex_filename = to_path(self.html_dir, 'results.tex')
-        self.results.to_latex(latex_filename, formatters=formatters, index=False, escape=False)

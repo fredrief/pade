@@ -8,8 +8,22 @@ class Box:
 
     The absolute position of origin will be handled by Pattern when the box is added to it
     """
-    def __init__(self, **kwargs) -> None:
-        if all([(s in kwargs) for s in ['origin', 'w', 'h']]):
+    def __init__(self, *args, **kwargs) -> None:
+        if len(args) == 1:
+            # Assume args is [[x0, y0], [x1, y1]]
+            origin = Coordinate(args[0][0])
+            opposite_corner = Coordinate(args[0][1])
+            diagonal = Vector(origin, opposite_corner)
+            self.origin = origin
+            self.diagonal = diagonal
+        elif len(args) == 2:
+            # Assume args is [x0, y0], [x1, y1]
+            origin = Coordinate(args[0])
+            opposite_corner = Coordinate(args[1])
+            diagonal = Vector(origin, opposite_corner)
+            self.origin = origin
+            self.diagonal = diagonal
+        elif all([(s in kwargs) for s in ['origin', 'w', 'h']]):
             origin = kwargs['origin']
             w = kwargs['w']
             h = kwargs['h']
@@ -49,6 +63,9 @@ class Box:
                 diagonal = Vector(diagonal)
             self.origin = origin
             self.diagonal = diagonal
+
+        else:
+            raise ValueError('Invalid arguments for Box')
 
 
     def __str__(self) -> str:

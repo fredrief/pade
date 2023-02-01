@@ -11,10 +11,14 @@ class Path:
     Path segment. Only straight wire in single layer
     """
     def __init__(self, layer, start, **kwargs) -> None:
+        # Set layer, purpose pair
         self.layer = layer
-        self.start = start
+        self.purpose = kwargs.get('purpose', 'drawing')
+
         if isinstance(start, Port):
             self.start = start.position
+        else:
+            self.start = Coordinate(start)
         self.stop = kwargs.get('stop')
         self.width = kwargs.get('width')
         self.begin_style = kwargs.get('begin_style', 'extend')
@@ -71,6 +75,7 @@ class Route:
         self.start_port = None
         self.end_port = None
         self.tech_file = kwargs.get('tech_file')
+        self.purpose = kwargs.get('purpose', 'drawing')
         if isinstance(start, Port):
             # If port, use center
             self.start = start.box.center()
@@ -78,8 +83,14 @@ class Route:
             # Use start port box width(height) as routing width
             self.width = min(start.box.w(), start.box.h())
             self.layer = start.layer
+        elif isinstance(start, Path):
+            self.start = start.get_box().center()
+            self.layer = start.layer
+            self.width = min(start.get_box().w(), start.get_box().h())
+        elif isinstance(start, Box):
+            self.start = start.center()
         else:
-            self.start = start
+            self.start = Coordinate(start)
 
         if isinstance(stop, Port):
             # If port, use center
@@ -89,8 +100,14 @@ class Route:
                 # Use stop port box width(height) as routing width
                 self.width = min(stop.box.w(), stop.box.h())
                 self.layer = stop.layer
+        elif isinstance(stop, Path):
+            self.stop = stop.get_box().center()
+        elif isinstance(stop, Route):
+            self.stop = stop.path_list[0].get_box().center()
+        elif isinstance(stop, Box):
+            self.stop = stop.center()
         else:
-            self.stop = stop
+            self.stop = Coordinate(stop)
 
         # Possibility for overwriting width and layer:
         self.width = kwargs.get('width', self.width)
@@ -121,6 +138,21 @@ class Route:
         #     if self.layer != self.start_port.layer:
         #         via_def_name = Via.find_via_def_name_from_layer_name(self.tech_file, self.start_port.layer, self.layer)
 
+        # vias = kwargs.get('vias', [])
+        # start_vias = kwargs.get('start_vias', vias)
+        # end_vias = kwargs.get('end_vias', vias)
+
+        # for via_name in start_vias:
+        #     if self.start_port is None:
+        #         raise ValueError('Can only add vias if start is a port')
+        #     via = Via(via_name, box=self.start_port.box)
+        #     self._add_via(via)
+
+        # for via_name in end_vias:
+        #     if self.end_port is None:
+        #         raise ValueError('Can only add vias if end is a port')
+        #     via = Via(via_name, box=self.end_port.box)
+        #     self._add_via(via)
 
         # Assign net to path segments if applicable
         if self.net is not None:
@@ -142,8 +174,9 @@ class Route:
         if p.begin_style == 'extend':
             center = p.start
         elif p.begin_style == 'truncate':
-            direction = Vector(p.start, p.stop).normalize()
-            center = p.start + direction*(p.width/2)
+            # direction = Vector(p.start, p.stop).normalize()
+            # center = p.start + direction*(p.width/2)
+            center = p.start
 
         for via_name in via_name_list:
             via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols)
@@ -174,7 +207,7 @@ class Route:
         r_stop = self.stop
         if self.offset != 0:
             # As this route starts vertically, assume offset is horisontally
-            p0 = Path(self.layer, self.start, dx=self.offset, width=self.width)
+            p0 = Path(self.layer, self.start, dx=self.offset, width=self.width, purpose=self.purpose)
             self.add_path(p0)
             # Update r_start
             r_start += (self.offset, 0)
@@ -182,18 +215,18 @@ class Route:
         p_end = None
         if self.offset_end != 0:
             # As this route ends horisontally, assume end offset is vertical
-            p_end = Path(self.layer, r_stop+(0, self.offset_end), dy=-self.offset_end, width=self.width)
+            p_end = Path(self.layer, r_stop+(0, self.offset_end), dy=-self.offset_end, width=self.width, purpose=self.purpose)
             # Update r_stop
             r_stop += (0, self.offset_end)
 
         vector = r_stop - r_start
         dy=vector[1]
         dx=vector[0]
-        p1 = Path(self.layer, r_start, dy=dy, width=self.width)
+        p1 = Path(self.layer, r_start, dy=dy, width=self.width, purpose=self.purpose)
         if not dy == 0:
             self.add_path(p1)
         if not dx == 0:
-            p2 = Path(self.layer, p1.stop, dx=dx, width=self.width)
+            p2 = Path(self.layer, p1.stop, dx=dx, width=self.width, purpose=self.purpose)
             self.add_path(p2)
         if not p_end is None:
             self.add_path(p_end)
@@ -208,7 +241,7 @@ class Route:
         # First handle offset
         if self.offset != 0:
             # As this route starts horisontally, assume self.offset is vertically
-            p0 = Path(self.layer, r_start, dy=self.offset, width=self.width)
+            p0 = Path(self.layer, r_start, dy=self.offset, width=self.width, purpose=self.purpose)
             self.add_path(p0)
             # Update r_start
             r_start += (0, self.offset)
@@ -216,7 +249,7 @@ class Route:
         p_end = None
         if self.offset_end != 0:
             # As this route ends vertically, assume end offset is horisontal
-            p_end = Path(self.layer, r_stop+(self.offset_end,0), dx=-self.offset_end, width=self.width)
+            p_end = Path(self.layer, r_stop+(self.offset_end,0), dx=-self.offset_end, width=self.width, purpose=self.purpose)
             # Update r_stop
             r_stop += (self.offset_end, 0)
 
@@ -224,11 +257,11 @@ class Route:
         dy=vector[1]
         dx=vector[0]
         # dx = dx  - self.width/2 if dx > 0 else dx + self.width/2
-        p1 = Path(self.layer, r_start, dx=dx, width=self.width)
+        p1 = Path(self.layer, r_start, dx=dx, width=self.width, purpose=self.purpose)
         if not dx == 0:
             self.add_path(p1)
         if not dy == 0:
-            p2 = Path(self.layer, p1.stop, dy=dy, width=self.width)
+            p2 = Path(self.layer, p1.stop, dy=dy, width=self.width, purpose=self.purpose)
             self.add_path(p2)
 
         if not p_end is None:
@@ -239,14 +272,16 @@ class Route:
         Horizontal route.
         """
         dx = self.stop[0] - self.start[0]
-        self.add_path(Path(self.layer, self.start, dx=dx, width=self.width))
+        if dx != 0:
+            self.add_path(Path(self.layer, self.start, dx=dx, width=self.width, purpose=self.purpose))
 
     def route_v(self):
         """
         Vertical route.
         """
         dy = self.stop[1] - self.start[1]
-        self.add_path(Path(self.layer, self.start, dy=dy, width=self.width))
+        if dy != 0:
+            self.add_path(Path(self.layer, self.start, dy=dy, width=self.width, purpose=self.purpose))
 
     def handle_path_style(self, **kwargs):
         # Add begin/end styles
@@ -280,6 +315,13 @@ class Via:
         if self.box is not None:
             self.center = self.box.center()
 
+        port = kwargs.get('port')
+        if port is not None:
+            self.box = port.box
+            self.center = port.box.center()
+
+        self.via_attr = kwargs.get('via_attr', {})
+
         # Index of via spacing rules in tech file parameter list
         # Might be tech-dependent?
         self.via_width_rule_index = 1
@@ -300,14 +342,24 @@ class Via:
         # via2bound space is a list. Assume rules for W and H are equal and select first entry
         self.via2bound_space = tech_file_param_list[self.via2bound_space_rule_index][0]
 
-    def get_via_params(self, tech_file_param_list=None, **kwargs):
+    def get_via_params(self, tech_file_param_list=None):
+        via_param_list = []
         if tech_file_param_list is not None and self.box is not None:
             self.parse_tech_file_rules(tech_file_param_list)
             via_unit_width = self.via_width + self.via2via_space
             self.n_cols = int((self.box.w() - self.via_width - 2*self.via2bound_space) / via_unit_width) + 1
+
             self.n_rows = int((self.box.h() - self.via_width - 2*self.via2bound_space) / via_unit_width) + 1
 
-        return [["cutRows", self.n_rows], ["cutColumns", self.n_cols]]
+        via_param_list = [
+            ["cutRows", self.n_rows],
+            ["cutColumns", self.n_cols],
+            ]
+
+        for key, value in self.via_attr.items():
+            via_param_list.append([key, value])
+
+        return via_param_list
 
 
 
@@ -325,6 +377,11 @@ class Port:
             route = args[0]
             self.layer = route.layer
             path = route.path_list[0]
+            self.box = path.get_box()
+            self.position = self.box.center()
+        elif len(args) == 1 and isinstance(args[0], Path):
+            path = args[0]
+            self.layer = path.layer
             self.box = path.get_box()
             self.position = self.box.center()
         elif len(args) == 1 and isinstance(args[0], Port):

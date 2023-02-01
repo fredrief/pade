@@ -1,4 +1,4 @@
-from pade import ureg
+from pade import *
 from pade.signal import Signal
 from pade.utils import get_unit
 from psf_utils import PSF, Quantity
@@ -6,17 +6,15 @@ from shlib import ls, to_path, mkdir, rm
 from numbers import Number
 import pandas as pd
 import numpy as np
-from inform import error, warn
 import re
 
 class PSFParser(object):
     """
     Helper class for parsing psfascii files
     """
-    def __init__(self, logger, output_dir, sim_name, **kwargs):
+    def __init__(self, output_dir, sim_name, **kwargs):
         """
         """
-        self.logger = logger
         self.output_dir = output_dir
         self.sim_name = sim_name
         # Dictionary for holding signals
@@ -28,8 +26,6 @@ class PSFParser(object):
         Parse psf file into traces
 
         Parameters:
-            logger: Logger
-                Logger object
             mcrun: int
                 If running a montecarlo analysis, specify the run number. This will add to the parsed signal output
             sim_name:
@@ -43,12 +39,24 @@ class PSFParser(object):
             if not self.is_valid_analysis(filename):
                 continue
             analysis_name = filename.split('.')[0]
-            self.logger.info(f'PARSING PSF FILE: {filename} ({self.sim_name})')
+            display(f'PARSING PSF FILE: {filename} ({self.sim_name})')
+
+            # The parsing of DcOpInfo will chrash if the file contains "inf"
+            # Modify the file to replace inf by nan
+            if 'dcOpInfo' in filename:
+                tmp = ""
+                with open(file, 'r') as f:
+                    for line in f.readlines():
+                        tmp += line.replace('inf', 'nan')
+
+                with open(file, 'w') as f:
+                    f.writelines(tmp)
+
             # Parsing might fail
             try:
                 psf = PSF(file)
             except Exception as err:
-                self.logger.warning(f'Could not parse file {file}, error occurred: {err}')
+                warn(f'Could not parse file {file}, error occurred: {err}')
                 continue
             for signal in psf.all_signals():
                 if isinstance(signal.ordinate, Quantity):

@@ -1,5 +1,5 @@
 from pade.utils import num2string
-from pade import ureg, Q_, info, display, warn, error, fatal
+from pade import ureg, Q_
 from shlib import ls, to_path, mkdir
 from scipy.interpolate import interp1d
 import numpy as np
@@ -194,6 +194,34 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
                 return i
         # If it never crossed
         return np.nan
+
+    def all_cross(self, x_sig):
+        """
+            Return the all indices where self crosses x_sig
+        """
+        x = x_sig.trace if isinstance(x_sig, Signal) else x_sig
+        y = self.trace
+        irise_list = []
+        ifall_list = []
+        # Verify that the two traces are of same length
+        if not len(self.trace) == len(x_sig):
+            raise ValueError('x and y signal must be of same length')
+
+        sign = lambda x: 1 if x>0 else -1
+        sign0 = sign(y[0]-x[0])
+        for i in range(1, len(y)):
+            sign1 = sign(y[i]-x[i])
+            dsign = sign1 - sign0
+            # If dsign > 0, we have a rising edge
+            if dsign > 0:
+                irise_list.append(i)
+                sign0 = sign1
+            # If dsign < 0, we have a falling edge
+            if dsign < 0:
+                ifall_list.append(i)
+                sign0 = sign1
+        # If it never crossed
+        return irise_list, ifall_list
 
 
     def at(self, x_sig, x_val, name=None, **kwargs):

@@ -3,14 +3,14 @@ from pade.utils import get_kwarg, num2string, cat, writef
 import re
 import subprocess
 from tqdm import tqdm
-from pade import fatal
+from pade import display, succeed, fatal, warn
 from datetime import datetime
 
 class Spectre(object):
     """
     For spectre simulations on remote server
     """
-    def __init__(self, netlist_dir, output_dir, log_dir, logger, design, analyses, sim_name, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], **kwargs):
+    def __init__(self, netlist_dir, output_dir, log_dir, design, analyses, sim_name, output_selections=[], command_options=['-format', 'psfascii', '++aps', '+mt', '-log'], **kwargs):
 
         # Set command options that will append to the spectre command
         self.command_options = command_options
@@ -22,7 +22,6 @@ class Spectre(object):
         self.log_dir = log_dir
 
         # Initialization
-        self.logger = logger
         self.analyses = analyses # []
         self.design = design
         self.montecarlo_settings = None
@@ -81,7 +80,7 @@ class Spectre(object):
         if self.montecarlo_settings:
             self.montecarlo_settings[param] = value
         else:
-            self.logger.warn('Cannot set parameter because montecarlo settings does not exist')
+            warn('Cannot set parameter because montecarlo settings does not exist')
 
     def init_netlist(self):
         """
@@ -145,7 +144,10 @@ class Spectre(object):
 
 
     def run(self, cache=True):
-        """ Run simulation """
+        """
+        Run simulation
+        Returns true if cache is used
+        """
         corner = self.corner
         netlist_filename = f'{corner.name}.txt'
         netlist_path = to_path(self.netlist_dir, netlist_filename)
@@ -162,10 +164,10 @@ class Spectre(object):
                 new_netlist_ = new_netlist
 
             if (new_netlist_ == prev_netlist_):
-                self.logger.info(f'Netlist unchanged, skip simulation. Corner: {corner}')
-                return
+                display(f'Netlist unchanged, skip simulation. Corner: {corner}')
+                return True
 
-        self.logger.info('Writing netlist')
+        display('Writing netlist')
         # Write netlist to file
         self.write_netlist(corner)
 
@@ -175,10 +177,10 @@ class Spectre(object):
         for cmd in self.command_options:
             popen_cmd += f"{cmd} "
 
-        self.logger.info(f'Starting spectre simulation.\nCommand: {popen_cmd}')
+        display(f'Starting spectre simulation.\nCommand: {popen_cmd}')
 
         # Run sim
-        self.logger.info(f'Simulating: {self.sim_name}')
+        display(f'Simulating: {self.sim_name}')
         log_file = to_path(self.log_dir, 'spectre_sim.log')
         # Progress bar
         self.tq = tqdm(total=100, leave=False, position=self.tqdm_pos)
@@ -212,8 +214,8 @@ class Spectre(object):
             if errors:
                 raise SpectreError(log_file)
 
-        self.logger.info("SPECTRE SIMULATION COMPLETE")
-        self.logger.info(f"Raw data directory: {simulation_raw_dir}")
+        display("SPECTRE SIMULATION COMPLETE")
+        display(f"Raw data directory: {simulation_raw_dir}")
 
 
 class SpectreError(Exception):
@@ -231,14 +233,14 @@ class SpectreError(Exception):
 """
 For simulating complete netlist
 """
-def simulate_netlist(logger, netlist_path, work_dir):
+def simulate_netlist(netlist_path, work_dir):
     log_file = to_path(work_dir, 'spectre_sim.log')
     raw_data_dir = to_path(work_dir, 'simulation_output')
     mkdir(raw_data_dir)
 
     popen_cmd = [f'spectre {netlist_path} -format psfascii -raw {raw_data_dir} ++aps -ahdllibdir {raw_data_dir} -log']
 
-    logger.info(f'Starting spectre simulation.\nCommand: {popen_cmd}')
+    display(f'Starting spectre simulation.\nCommand: {popen_cmd}')
     tq = tqdm(total=100, leave=False)
     with open(log_file, 'wb') as f:
         process = subprocess.Popen(popen_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
@@ -270,5 +272,5 @@ def simulate_netlist(logger, netlist_path, work_dir):
         if errors:
             raise RuntimeError(f'Error occurred. See: {log_file}')
 
-    logger.info("SPECTRE SIMULATION COMPLETE")
-    logger.info(f"Raw data directory: {raw_data_dir}")
+    succeed("SPECTRE SIMULATION COMPLETE")
+    display(f"Raw data directory: {raw_data_dir}")

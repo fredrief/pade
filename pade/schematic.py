@@ -147,7 +147,6 @@ class Cell:
         Arguments
             cell_name: str
             instance_name: str
-            logger: Logger
         Keyword arguments:
             exclude_list:
                 List of strings that are matched to exclude subcells in subckt definition. Only applicable if netlist_filename is provided. (default [])
@@ -311,10 +310,11 @@ class Cell:
         """
         Append self to subckt list in right order
         """
-        # First append all subcells to the list
-        for instance_name in self.subcells:
-            cell = self.subcells[instance_name]
-            subckt_list = cell.append_subckt_list(subckt_list)
+        if self.lpe_netlist is None:
+            # First append all subcells to the list
+            for instance_name in self.subcells:
+                cell = self.subcells[instance_name]
+                subckt_list = cell.append_subckt_list(subckt_list)
         # append self to list if not already present
         if not any([self.cell_name == x.cell_name for x in subckt_list]):
             subckt_list.append(self)
@@ -603,7 +603,7 @@ class Cell:
                     raise RuntimeError(f'Terminal {t.get_name_from_top()} is not connected to a net')
                     # warn(f'Terminal {t.get_name_from_top()} is not connected to a net. Will be removed.')
                     # c.delete_terminal(t)
-                    # continue
+                    continue
 
                 if t.net.name in ut_list:
                     ut_list.remove(t.net.name)

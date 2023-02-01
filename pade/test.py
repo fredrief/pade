@@ -3,8 +3,8 @@ from typing import List
 from pade.psf_parser import PSFParser
 from pade.spectre import Spectre as Simulator
 from pade.evaluation import Evaluation, Expression
-from pade.utils import get_kwarg, init_logger
-from pade import fatal
+from pade.utils import get_kwarg
+from pade import *
 from shlib.shlib import lsf, rm, to_path, mkdir
 import matplotlib.pyplot as plt
 
@@ -44,8 +44,6 @@ class Test:
         self.SkillPlot = kwargs.get('SkillPlot')
         # Skill script dir. Let it be equal to res if no skill scripts are specified
         self.skill_dir = to_path(self.sim_data_dir, "skill") if self.SkillPlot else self.res_dir
-        # Logger
-        main_logf = to_path(self.log_dir, 'main.log')
         # Make all directories at init
         mkdir(self.log_dir, self.netlist_dir, self.output_dir, self.log_dir, self.html_dir, self.latex_dir, self.res_dir, self.log_dir, self.skill_dir)
 
@@ -56,16 +54,15 @@ class Test:
             for opt in kwargs['command_options']:
                 self.command_options.append(opt)
 
-        self.logger = get_kwarg(kwargs, 'logger')
-        if self.logger is None:
-            self.logger = init_logger(logf=main_logf, name=self.sim_name)
+        # Log file
+        main_logf = to_path(self.log_dir, 'main.log')
+        informer.set_logfile(main_logf)
 
         # Init simulator
         sim = Simulator(
             self.netlist_dir,
             self.output_dir,
             self.log_dir,
-            self.logger,
             design,
             analyses,
             self.sim_name,
@@ -75,6 +72,8 @@ class Test:
             global_nets=self.global_nets,
             tqdm_pos=self.tqdm_pos,
             )
+
+        self.used_cache = None # This will be set to true if the simulator used cache
 
         # Eventually set mcoptions in simulator
         if self.mcoptions is not None:
@@ -97,14 +96,14 @@ class Test:
                 If True, the simulation will not run if an identical netlist does already exist
         """
         sim = self.simulator
-        parser = PSFParser(self.logger, self.output_dir, f'{self.sim_name}_{self.corner.name}')
-        sim.run(cache=cache)
+        parser = PSFParser(self.output_dir, f'{self.sim_name}_{self.corner.name}')
+        self.used_cache = sim.run(cache=cache)
         # Plot using skill
         if self.SkillPlot:
             self.SkillPlot.plot(self.skill_dir, self.output_dir)
         # Terminate if debugging
         if self.debug:
-            self.logger.info('Debug mode active: Terminating Program')
+            display('Debug mode active: Terminating Program')
             quit()
         parser.parse()
 
@@ -132,40 +131,6 @@ class Test:
                             html_dir=self.html_dir, latex_dir=self.latex_dir)
         self.evaluation.evaluate()
         return self.evaluation.results
-
-    def to_html(self):
-        try:
-            self.evaluation.to_html()
-        except Exception as e:
-            self.logger.info(f'Failed writing results to HTML table: {e}')
-
-    def to_latex(self):
-        try:
-            self.evaluation.to_latex()
-        except Exception as e:
-            self.logger.info(f'Failed writing results to Latex table: {e}')
-
-    # def save_plot(self, expressions, name='plot.png'):
-    #     figure_path = to_path(self.figure_dir, name)
-    #     signals = self.evaluate(expressions).to_numpy()
-    #     N = signals.shape[0]
-    #     for n in range(N):
-    #         sig = signals[n][0]
-    #         sweep = self.parser.get_sweep(sig.analysis)
-    #         plt.subplot(N+1, 1, n+1)
-
-    #         # plt.yticks([])
-    #         if not n==N-1:
-    #             plt.xticks([])
-    #         # Plotting against sweep fails if dimensions are not equal
-    #         try:
-    #             plt.plot(sweep.trace, sig.trace, label=sig.name)
-    #         except ValueError:
-    #             plt.plot(sig.trace, label=sig.name)
-    #         plt.legend(loc='upper right')
-    #         # plt.ylabel(f'[{sig.unit}]')
-    #     plt.savefig(figure_path)
-
 
     def get_output_selections(self, outputs: List, expressions: Expression):
         """

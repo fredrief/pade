@@ -111,6 +111,20 @@ class cap(Cell):
         # Add properties
         self.add_parameters({'c': num2string(C)})
 
+class inductor(Cell):
+    """
+    Capacitor
+    terminals: p, n
+    """
+    def __init__(self, instance_name, parent_cell, L):
+        # Call super init
+        super().__init__('inductor', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
+        # Add properties
+        self.add_parameters({'l': num2string(L)})
+
 class idc(Cell):
     """
     DC Current source
@@ -138,6 +152,22 @@ class vsin(Cell):
         self.n = self.add_terminal("n")
         # Add properties
         self.add_parameters({'type': 'sine', 'sinedc': num2string(vdc), 'ampl': num2string(ampl), 'freq': num2string(freq), 'mag': '1'})
+        for key in kwargs:
+            self.set_parameter(key, kwargs[key])
+
+class vbit(Cell):
+    """
+    Digital bit stream
+    Terminals: p, n
+    """
+    def __init__(self, instance_name, parent_cell, val0, val1, period, datastr, rise='1n', fall='1n', **kwargs):
+        # Call super init
+        super().__init__('vsource', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        self.p = self.add_terminal("p")
+        self.n = self.add_terminal("n")
+        datastr = f'"{datastr}"'
+        self.add_parameters({'type': 'bit', 'val0': val0, 'val1': val1, 'period': period, 'data': datastr, 'rise': rise, 'fall': fall})
         for key in kwargs:
             self.set_parameter(key, kwargs[key])
 
@@ -260,7 +290,7 @@ class vpwl(Cell):
         # Add terminals
         self.p = self.add_terminal("p")
         self.n = self.add_terminal("n")
-        wave_str_list = [str(w) for w in wave]
+        wave_str_list = [num2string(w) for w in wave]
         # Add properties
         wave_str = "[" + ' '.join(wave_str_list) + ']'
         self.add_parameters({'type': 'pwl', 'wave': wave_str})
