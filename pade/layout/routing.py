@@ -32,6 +32,11 @@ class Path:
             dx = kwargs['dx']
             self.stop = self.start + (dx, 0)
 
+        # used only when begin or end style are set to custom
+        # list( n_beginLeftDiagExt n_beginRightDiagExt n_beginRightHalfWidth n_endLeftDiagExt n_endRightDiagExt n_endRightHalfWidth)
+        self.ext_value_list = kwargs.get('ext_value_list')
+
+
     def __str__(self):
         return f"Path in {self.layer} from {self.start} to {self.stop}"
 
@@ -71,7 +76,6 @@ class Route:
         self.layer = None
         self.offset = kwargs.get('offset', 0)
         self.offset_end = kwargs.get('offset_end', 0)
-        self.net = kwargs.get('net')
         self.start_port = None
         self.end_port = None
         self.tech_file = kwargs.get('tech_file')
@@ -89,6 +93,8 @@ class Route:
             self.width = min(start.get_box().w(), start.get_box().h())
         elif isinstance(start, Box):
             self.start = start.center()
+        elif isinstance(start, Route):
+            self.start = start.path_list[0].get_box().center()
         else:
             self.start = Coordinate(start)
 
@@ -124,6 +130,12 @@ class Route:
             self.route_h()
         elif how == '|':
             self.route_v()
+        elif how == '-|-':
+            self.path_len_list = kwargs['path_len_list']
+            self.route_custom_h()
+        elif how == '|-|':
+            self.path_len_list = kwargs['path_len_list']
+            self.route_custom_v()
         else:
             warn('Route method not recognized')
 
@@ -154,11 +166,6 @@ class Route:
         #     via = Via(via_name, box=self.end_port.box)
         #     self._add_via(via)
 
-        # Assign net to path segments if applicable
-        if self.net is not None:
-            for p in self.path_list:
-                p.set_net(self.net)
-
 
     def __str__(self) -> str:
         return f"Route with {len(self.path_list)} Paths"
@@ -169,7 +176,7 @@ class Route:
     def add_path(self, path):
         self.path_list.append(path)
 
-    def add_via_start(self, via_name_list, n_rows=1, n_cols=2):
+    def add_via_start(self, via_name_list, n_rows=1, n_cols=2, **via_attr):
         p = self.path_list[0]
         if p.begin_style == 'extend':
             center = p.start
@@ -177,22 +184,26 @@ class Route:
             # direction = Vector(p.start, p.stop).normalize()
             # center = p.start + direction*(p.width/2)
             center = p.start
+        else:
+            raise ValueError(f'Unknown path begin style: {p.begin_style}')
 
         for via_name in via_name_list:
-            via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols)
+            via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols, via_attr=via_attr)
             self._add_via(via)
 
-    def add_via_end(self, via_name_list, n_rows=1, n_cols=2):
+    def add_via_end(self, via_name_list, n_rows=1, n_cols=2, **via_attr):
         p = self.path_list[-1]
         if p.end_style == 'extend':
             center = p.stop
         elif p.end_style == 'truncate':
             direction = Vector(p.start, p.stop).normalize()
             center = p.stop - direction*(p.width/2)
+        else:
+            raise ValueError(f'Unknown path end style: {p.end_style}')
 
         center = self.path_list[-1].stop
         for via_name in via_name_list:
-            via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols)
+            via = Via(via_name, center=center, n_rows=n_rows, n_cols=n_cols, via_attr=via_attr)
             self._add_via(via)
 
     def _add_via(self, via):
@@ -271,17 +282,86 @@ class Route:
         """
         Horizontal route.
         """
-        dx = self.stop[0] - self.start[0]
+        r_start = self.start
+        r_stop = self.stop
+
+        # First handle offset
+        if self.offset != 0:
+            # As this route starts horisontally, assume self.offset is vertically
+            p0 = Path(self.layer, r_start, dy=self.offset, width=self.width, purpose=self.purpose)
+            self.add_path(p0)
+            # Update r_start
+            r_start += (0, self.offset)
+        dx = self.stop[0] - r_start[0]
         if dx != 0:
-            self.add_path(Path(self.layer, self.start, dx=dx, width=self.width, purpose=self.purpose))
+            self.add_path(Path(self.layer, r_start, dx=dx, width=self.width, purpose=self.purpose))
 
     def route_v(self):
         """
         Vertical route.
         """
-        dy = self.stop[1] - self.start[1]
+        r_start = self.start
+        r_stop = self.stop
+        if self.offset != 0:
+            # As this route starts vertically, assume offset is horisontally
+            p0 = Path(self.layer, self.start, dx=self.offset, width=self.width, purpose=self.purpose)
+            self.add_path(p0)
+        # Update r_start
+        r_start += (self.offset, 0)
+        dy = self.stop[1] - r_start[1]
         if dy != 0:
-            self.add_path(Path(self.layer, self.start, dy=dy, width=self.width, purpose=self.purpose))
+            self.add_path(Path(self.layer, r_start, dy=dy, width=self.width, purpose=self.purpose))
+
+    def route_custom_h(self):
+        """
+        Custom route, start horisontally
+        """
+        c0 = self.start
+        go_h = True # Starts horisontally
+        for path_len in self.path_len_list:
+            if go_h:
+                self.add_path(Path(self.layer, c0, dx=path_len, width=self.width, purpose=self.purpose))
+                c0 += (path_len, 0)
+            else:
+                self.add_path(Path(self.layer, c0, dy=path_len, width=self.width, purpose=self.purpose))
+                c0 += (0, path_len)
+            go_h = not go_h
+
+        # Finally, go to end
+        if go_h:
+            dx = self.stop[0] - c0[0]
+            if dx != 0:
+                self.add_path(Path(self.layer, c0, dx=dx, width=self.width, purpose=self.purpose))
+        else:
+            dy = self.stop[1] - c0[1]
+            if dy != 0:
+                self.add_path(Path(self.layer, c0, dy=dy, width=self.width, purpose=self.purpose))
+
+    def route_custom_v(self):
+        """
+        Custom route, start vertically
+        """
+        c0 = self.start
+        go_h = False # Starts vertically
+        for path_len in self.path_len_list:
+            if go_h:
+                self.add_path(Path(self.layer, c0, dx=path_len, width=self.width, purpose=self.purpose))
+                c0 += (path_len, 0)
+            else:
+                self.add_path(Path(self.layer, c0, dy=path_len, width=self.width, purpose=self.purpose))
+                c0 += (0, path_len)
+            go_h = not go_h
+
+        # Finally, go to end
+        if go_h:
+            dx = self.stop[0] - c0[0]
+            if dx != 0:
+                self.add_path(Path(self.layer, c0, dx=dx, width=self.width, purpose=self.purpose))
+        else:
+            dy = self.stop[1] - c0[1]
+            if dy != 0:
+                self.add_path(Path(self.layer, c0, dy=dy, width=self.width, purpose=self.purpose))
+
 
     def handle_path_style(self, **kwargs):
         # Add begin/end styles
@@ -339,6 +419,9 @@ class Via:
         self.via_width = tech_file_param_list[self.via_width_rule_index]
         # via2via space is a list. Assume rules for W and H are equal and select first entry
         self.via2via_space = tech_file_param_list[self.via2via_space_rule_index][0]
+        # Overwrite if given as viaAttr:
+        if 'cutSpacing' in self.via_attr:
+            self.via2via_space = self.via_attr['cutSpacing'][0]
         # via2bound space is a list. Assume rules for W and H are equal and select first entry
         self.via2bound_space = tech_file_param_list[self.via2bound_space_rule_index][0]
 

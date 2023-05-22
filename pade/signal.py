@@ -1,5 +1,5 @@
 from pade.utils import num2string
-from pade import ureg, Q_
+from pade import ureg, Q_, display, warn
 from shlib import ls, to_path, mkdir
 from scipy.interpolate import interp1d
 import numpy as np
@@ -233,8 +233,9 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
 
         try:
             trace = interp1d(x_sig, self.trace, **kwargs)(x_val)
-        except ValueError:
+        except ValueError as e:
             trace = np.nan
+            warn(e)
         try:
             trace = float(trace)
         except:
@@ -253,8 +254,10 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             Return gradient of self wrt x
         """
         name = name if name else f"d{self.name}/d{x.name}"
+        unit = (self[-1] / x[-1]).unit
         trace = np.gradient(self.trace, x.trace)
-        return Signal(trace, self.unit, name, analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+
+        return Signal(trace, unit, name, analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
 
     def integrate(self, sweep, start=0, stop=-1, name=None):
         """

@@ -50,13 +50,13 @@ class Spectre(object):
                     astr += f'{param}={num2string(value)} '
             astr += " { \n"
             for a in self.analyses:
-                # Only include analyes inside mc brackets, not options and info
-                if not a.type in ['options', 'info']:
+                # Only include analyes inside mc brackets, not options
+                if not a.type in ['options']:
                     astr += a.get_netlist_string() + "\n"
             astr += "} \n"
             for a in self.analyses:
-                # Append options and info statements
-                if a.type in ['options', 'info']:
+                # Append optionsstatements
+                if a.type in ['options']:
                     astr += a.get_netlist_string() + "\n"
         else:
             for a in self.analyses:
@@ -190,7 +190,10 @@ class Spectre(object):
             line_s = None
             for line in iter(process.stdout.readline, b''):
                 f.write(line)
-                line_s = line.decode('ascii')
+                try:
+                    line_s = line.decode('ascii')
+                except:
+                    pass
                 # Only write time info to console
                 progress_line = re.search('\(.* %\)', line_s)
                 if progress_line:

@@ -109,10 +109,10 @@ class PSFParser(object):
             return np.nan
 
     def get_signal_list(self, sig_name_regex, analysis):
-        identifier = f'{self.sim_name}:{analysis}:{sig_name_regex}'
+        identifier = f'{sig_name_regex}'
         sig_list = []
         for name, sig in self.signals.items():
-            if re.match(identifier, name):
+            if not re.search(identifier, name) is None:
                 sig_list.append(sig)
         return sig_list
 

@@ -5,13 +5,13 @@ import copy
 class Coordinate:
     def __init__(self, coord) -> None:
         # Assume subscriptable input
-        self.x = np.round(float(coord[0]), decimals=3)
-        self.y = np.round(float(coord[1]), decimals=3)
+        self.x = np.round(float(coord[0]), decimals=2)
+        self.y = np.round(float(coord[1]), decimals=2)
 
     def to_skill(self):
         return f'{self.x}:{self.y}'
 
-    def to_list(self, decimals=3):
+    def to_list(self, decimals=2):
         return [np.round(self.x, decimals=decimals), np.round(self.y, decimals=decimals)]
 
     def __round__(self, ndigits=0):
@@ -70,7 +70,7 @@ class Vector:
             start = args[0]
             stop = args[1]
             self.array = np.array([stop[0]-start[0], stop[1]-start[1]])
-        self.array = np.round(self.array, decimals=3)
+        self.array = np.round(self.array, decimals=2)
 
     def __getitem__(self, item):
         return self.array[item]

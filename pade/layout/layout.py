@@ -1,4 +1,4 @@
-from pade import warn, fatal
+from pade import warn, fatal, debug, display
 from pade.layout.geometry import *
 from pade.layout.pattern import *
 from pade.layout.routing import *
@@ -134,12 +134,15 @@ class LayoutItem:
             via = Via(via_name, port=port)
             self.add_via(via)
 
-    def add_via_from_pattern(self, via_def_name, pattern: Pattern, margin=0, **via_attr):
+    def add_via_from_pattern(self, via_def_name, pattern: Pattern, margin=0, margin_both=False, **via_attr):
         """
         Add vias that fill pattern region
+        margin_both: Add margin in both directions
         """
         for box in pattern.box_list:
-            if box.h() > box.w():
+            if margin_both:
+                new_diag = box.diagonal - Vector([0, 2*margin]) - Vector([2*margin, 0])
+            elif box.h() > box.w():
                 # If taller than wide, subtract margin from y component of diagonal
                 new_diag = box.diagonal - Vector([0, 2*margin])
             else:
@@ -159,6 +162,14 @@ class LayoutItem:
         p.add_box(Box(origin=self.lower_left()-margin ,opposite_corner=self.upper_right()+margin), absolute_position=True)
         self.add_pattern(p)
         return p
+
+    def add_instance_enclosure(self, instance, layer, purpose, margin=0):
+        """
+        Adds enclosure around an instance
+        """
+        p = Pattern(layer=layer, purpose=purpose, origin=instance.box.lower_left())
+        p.add_box(Box(origin=instance.box.lower_left()-margin, opposite_corner=instance.box.upper_right()+margin), absolute_position=True)
+        self.print_pattern(p)
 
     def has_something_to_print(self):
         # If all lists are empty, return False
@@ -186,7 +197,16 @@ class LayoutItem:
             lay_inst = self.print_instance(lay_item)
             return lay_inst
         else:
-            return LayoutInstance.from_cell(cell, self)
+            # Check if cell_view exist
+            res = self.ws.db.open_cell_view_by_type(cell.lib_name, cell.cell_name, ['layout'], ['layout'], 'r', None)
+            if not res is None:
+                lay_inst = LayoutInstance.from_cell(cell, self)
+            else:
+                kwargs['build_layers'] = 10
+                lay_item = lay_class(cell, **kwargs)
+                lay_inst = self.print_instance(lay_item)
+            return lay_inst
+
 
     # -----------------------------
     # Skill interaction functions
@@ -236,13 +256,22 @@ class LayoutItem:
         return ring_pattern
 
 
-    def get_all_instances(self):
+    def get_all_instances(self, recursive=False):
         """
         Returns all instances in cell_vew as LayoutInstance objects
         """
-        instance_list = self.cell_view.instances
-        return [LayoutInstance(i) for i in instance_list]
+        temp_list = [LayoutInstance(i) for i in self.cell_view.instances]
+        instance_list = []
+        if recursive:
+            for inst in temp_list:
+                instance_list += inst.get_all_instances(recursive=True)
+        else:
+            instance_list = temp_list
+        return instance_list
 
+    def get_instance(self, instance_name):
+        instances = self.get_all_instances()
+        return [i for i in instances if i.name==instance_name][0]
 
     def print_layout(self, recursive=False):
         """
@@ -254,32 +283,34 @@ class LayoutItem:
         if not self.has_something_to_print():
             return
 
-        if recursive:
-            for inst in self.get_unique_instance_list():
-                inst.print_layout(recursive=True)
+        # if recursive:
+        #     for inst in self.get_unique_instance_list():
+        #         inst.print_layout(recursive=True)
+
+        display(f'Printing layout for instance: {self.instance_name}, cell: {self.cell_name}')
 
         # Write instances
         for instance in self.instance_list:
-            print(f'Instantiating: {instance}')
+            # display(f'Instantiating: {instance}')
             self.print_instance(instance)
 
         # Write patterns
         for pattern in self.pattern_list:
-            print(f'Printing: {pattern}')
+            # display(f'Printing: {pattern}')
             self.print_pattern(pattern)
 
         # Write routes
         for route in self.route_list:
-            print(f'Printing: {route}')
+            # display(f'Printing: {route}')
             self.print_route(route)
 
         # Write ports
         for port in self.port_list:
-            print(f'Printing: {port}')
+            # display(f'Printing: {port}')
             self.print_port( port)
 
         # Write Vias
-        print(f'Printing {len(self.via_list)} vias')
+        # display(f'Printing {len(self.via_list)} vias')
         for via in self.via_list:
             self.print_via(via)
 
@@ -311,9 +342,12 @@ class LayoutItem:
         for name, value in instance.property_list:
             lay_inst.set_property(name, value)
 
+
         return lay_inst
 
     def print_pattern(self, pattern):
+        if self.cell_view is None:
+            self.open_layoutview()
         for box in pattern.box_list:
             self.ws.db.create_rect(
                 self.cell_view,
@@ -322,6 +356,8 @@ class LayoutItem:
                 )
 
     def print_route(self, route):
+        if self.cell_view is None:
+            self.open_layoutview()
         # Add route to routlist if not already in list
         # if not route in self.route_list:
         #     self.add_route(route)
@@ -331,13 +367,18 @@ class LayoutItem:
             self.print_via(via)
 
     def print_path(self, path):
-        path_id = self.ws.db.create_path_seg(self.cell_view, [path.layer, path.purpose], path.start.to_list(), path.stop.to_list(), path.width, path.begin_style, path.end_style)
-        # Assign net
-        if path.net is not None:
-            # Create the net in cell_view (If it does not already exist)
-            net = self.ws.db.create_net(self.cell_view, path.net)
-            # Assign the net to the path seg
-            self.ws.db.add_fig_to_net(path_id, net)
+        if self.cell_view is None:
+            self.open_layoutview()
+        if not path.ext_value_list is None:
+            path_id = self.ws.db.create_path_seg(self.cell_view, [path.layer, path.purpose], path.start.to_list(), path.stop.to_list(), path.width, path.begin_style, path.end_style, path.ext_value_list)
+        else:
+            path_id = self.ws.db.create_path_seg(self.cell_view, [path.layer, path.purpose], path.start.to_list(), path.stop.to_list(), path.width, path.begin_style, path.end_style)
+        # # Assign net
+        # if path.net is not None:
+        #     # Create the net in cell_view (If it does not already exist)
+        #     net = self.ws.db.create_net(self.cell_view, path.net)
+        #     # Assign the net to the path seg
+        #     self.ws.db.add_fig_to_net(path_id, net)
 
 
 
@@ -346,12 +387,16 @@ class LayoutItem:
 
 
     def print_via(self, via):
+        if self.cell_view is None:
+            self.open_layoutview()
         # Use tech file to find via rules
         via_def_id = self.ws.tech.find_via_def_by_name(self.tech_file, via.via_def_name)
         via_params = via.get_via_params(self.ws.db.get(via_def_id, 'params'))
         self.ws.db.create_via(self.cell_view, via_def_id, via.center.to_list(), "R0", via_params)
 
     def print_port(self, port):
+        if self.cell_view is None:
+            self.open_layoutview()
         # if not port in self.port_list:
         #     self.add_port(port)
         font_size = min(port.box.w(), port.box.h()) / 5
@@ -366,14 +411,6 @@ class LayoutItem:
         self.ws.db.create_pin(net, fig)
         self.ws.db.create_label(self.cell_view, [port.layer, 'label'], port.position.to_list(), port.name, "centerCenter", "R0", "stick", font_size)
 
-    # ---------------------
-    # SCHEMATIC
-    # ---------------------
-    def print_schematic(self):
-        # TODO: Would be nice. Requires all instances to be pade.Cell objects such that I have info about connectivity.
-        pass
-
-
 
 
 class LayoutInstance:
@@ -387,7 +424,7 @@ class LayoutInstance:
         Particularily suited for kit models
         """
         lib_name = cell.lib_name
-        cell_name = cell.cell_name
+        cell_name = kwargs.get('cell_name', cell.cell_name) # Might need to overwrite
         instance_name = kwargs.get('instance_name', cell.instance_name)
         lay_item = LayoutItem(lib_name, cell_name, instance_name)
 
@@ -407,7 +444,6 @@ class LayoutInstance:
             lay_inst.edit_cdf_param(name, param.value, run_callbacks=run_callbacks)
 
         # Update inst transform
-        # lay_inst.invoke_inst_callbacks()
         lay_inst.update_transform(lay_inst.inst.transform)
         lay_inst.set_box()
 
@@ -432,6 +468,7 @@ class LayoutInstance:
         # Keep track of parents transforms
         self.parent_transform = kwargs.get('transform')
         self.transform = None
+        self.parent_cell = None
         self.update_transform(self.inst.transform)
         # Bounding box:
         self.set_box()
@@ -527,17 +564,50 @@ class LayoutInstance:
             raise RuntimeError(f'Failed to get property {pname} from {self}')
         # Check if is a coordinate
         try:
+            c = self.ws.db.transform_point(c, self.transform)
             c = Coordinate(c)
-            return c + translation
+            return c
         except:
             pass
         # Check if it is a b_box
         try:
-            b = Box(c)
-            return b.translate(translation)
+            b = self.transform_bbox(c)
+            b = Box(b)
+            return b
         except:
             pass
         raise ValueError(f'Property {pname} could not be converted to Coordinate or Box')
+
+    def get_all_instances(self, recursive=False):
+        """
+        Returns all instances in master as LayoutInstance objects
+        """
+        instance_list = []
+        try:
+            temp_list = [LayoutInstance(i, transform=self.transform) for i in self.master.instances]
+        except:
+            return [self]
+        if recursive:
+            for inst in temp_list:
+                temp_list = inst.get_all_instances(recursive=True)
+                if inst in temp_list:
+                    inst.parent_cell = self
+                    instance_list.append(inst)
+            instance_list.append(self)
+        return instance_list
+
+    def get_name_from_top(self):
+        """
+        Returns the instance name on the form
+        P1.P2.self.instance_name
+        """
+        name_string = self.name
+        pc = self.parent_cell
+        # Design has cell_name = instance_name. Stop when we have reached Design
+        while pc is not None:
+            name_string = f'{pc.name}.{name_string}'
+            pc = pc.parent_cell
+        return name_string
 
 
     def set_box(self):
@@ -565,11 +635,9 @@ class LayoutInstance:
         self.update_transform(self.inst.transform)
         self.set_box()
 
-    def set_orient(self, orient, run_callbacks=True):
+    def set_orient(self, orient):
         old_trans = self.inst.transform
         self.inst.transform = [old_trans[0], orient, old_trans[2]]
-        if run_callbacks:
-            self.invoke_inst_callbacks()
         self.update_transform(self.inst.transform)
         self.set_box()
 
@@ -646,6 +714,13 @@ class LayoutInstance:
         translation = Vector([0, self.box.y_min()], [0, ymin])
         self.translate(translation)
 
+    def set_ymax(self, ymax):
+        """
+        Translate to achieve target ymax
+        """
+        translation = Vector([0, self.box.y_max()], [0, ymax])
+        self.translate(translation)
+
     def set_center(self, center):
         translation = Vector(self.box.center(), center)
         self.translate(translation)
@@ -668,22 +743,9 @@ class LayoutInstance:
                 # Update Box in case it is modified by CDF
                 self.box = Box(origin=self.inst.b_box[0], opposite_corner=self.inst.b_box[1])
 
-                # Run all callbacks. This fixes other derived parameters
-                # Causes problem for CAP
-                if run_callbacks:
-                    self.invoke_inst_callbacks()
                 return
 
         raise ValueError(f'Could not find parameter {cdf_param_name} in {self}')
-
-
-    def invoke_inst_callbacks(self):
-        """
-        Run/invoke all callbacks of instance
-        Using skill function written by Andrew Becket. Loaded in .cdsinit.
-        """
-        self.ws["abInvokeInstCdfCallbacks"](self.inst)
-
 
     def get_cdf_param(self, param_name):
         cdf_param_list = self.get_cdf_param_list()
@@ -715,6 +777,42 @@ class LayoutInstance:
         c2 = Coordinate(b_box[1])
         box = Box(origin=c1, opposite_corner=c2)
         return box
+
+    def get_shape_bbox_list_by_net_name(self, net_name):
+        shape_list = [s for s in self.inst.master.shapes if not s.net is None and s.net.name == net_name]
+        return [Box(self.transform_bbox(s.b_box)) for s in shape_list]
+
+    def get_top_bbox_by_net_name(self, net_name):
+        y_center = lambda box: box.center()[1]
+        area = lambda box: box.area()
+        shape_list = self.get_shape_bbox_list_by_net_name(net_name)
+        shape_list.sort(key=area, reverse=True)
+        shape_list.sort(key=y_center, reverse=True)
+        return shape_list[0]
+
+    def get_bottom_bbox_by_net_name(self, net_name):
+        y_center = lambda box: box.center()[1]
+        area = lambda box: box.area()
+        shape_list = self.get_shape_bbox_list_by_net_name(net_name)
+        shape_list.sort(key=area, reverse=True)
+        shape_list.sort(key=y_center)
+        return shape_list[0]
+
+    def get_right_bbox_by_net_name(self, net_name):
+        x_center = lambda box: box.center()[0]
+        area = lambda box: box.area()
+        shape_list = self.get_shape_bbox_list_by_net_name(net_name)
+        shape_list.sort(key=area, reverse=True)
+        shape_list.sort(key=x_center, reverse=True)
+        return shape_list[0]
+
+    def get_left_bbox_by_net_name(self, net_name):
+        def x_center(box): return box.center()[0]
+        area = lambda box: box.area()
+        shape_list = self.get_shape_bbox_list_by_net_name(net_name)
+        shape_list.sort(key=area, reverse=True)
+        shape_list.sort(key=x_center)
+        return shape_list[0]
 
     def transform_bbox(self, b_box):
         return self.ws.db.transform_b_box(b_box, self.transform)
@@ -763,3 +861,4 @@ class LayoutInstance:
         box = [p.value for p in self.inst.prop if p.name == pname][0]
         box = Box(self.transform_bbox(box))
         return box
+

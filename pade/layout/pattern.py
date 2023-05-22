@@ -4,7 +4,7 @@ import copy
 
 class Box:
     """
-    Arguments: (origin, w, h) or (origin, diagonal) or ('origin', 'opposite_corner') or (diagonal)
+    Arguments: [[x0, y0], [x1, y1]] or [x0, y0], [x1, y1] or (origin, w, h) or (origin, diagonal) or ('origin', 'opposite_corner') or (diagonal)
 
     The absolute position of origin will be handled by Pattern when the box is added to it
     """
@@ -84,8 +84,8 @@ class Box:
             x_min = max(self.x_min(), other.x_min())
             y_max = min(self.y_max(), other.y_max())
             y_min = max(self.y_min(), other.y_min())
-            dx = np.round(x_max - x_min, decimals=3)
-            dy = np.round(y_max - y_min, decimals=3)
+            dx = np.round(x_max - x_min, decimals=2)
+            dy = np.round(y_max - y_min, decimals=2)
             if dx > 0 and dy > 0:
                 origin = Coordinate((x_min, y_min))
                 diagonal = Vector(origin, (x_max, y_max))
@@ -263,6 +263,12 @@ class Box:
             y0 = center[1] - self.diagonal[1]/2
             self.origin = Coordinate((x0, y0))
 
+    def set_center(self, center, in_place=False):
+        translation = Vector(self.center(), center)
+        new_box = self.translate(translation, in_place=in_place)
+        return new_box
+
+
     def area(self):
         return np.abs(self.diagonal[0] * self.diagonal[1])
 
@@ -417,6 +423,7 @@ class Pattern:
             if not absolute_position:
                 box_copy.origin += self.origin
             self.box_list.append(box_copy)
+        return box_copy
 
     def add_box_list(self, box_list, absolute_position=False):
         for box in box_list:

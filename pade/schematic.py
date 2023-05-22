@@ -162,8 +162,10 @@ class Cell:
         # Parameters dict (Only parameters that is passed to spectre)
         self.parameters = {}
         self.cell_name = cell_name
+        self.model_name = kwargs.get('model_name', self.cell_name)
         self.instance_name = instance_name
         self.lib_name = kwargs.get('lib_name')
+        self.cdl_subtype = kwargs.get('cdl_subtype')
 
         # Connect cell and design/parent cell
         self.parent_cell = parent_cell
@@ -181,7 +183,11 @@ class Cell:
 
         # For LPE netlist, do not parse, just return netlist
         # This will be used in the get subckt function
-        self.lpe_netlist = kwargs.get('lpe_netlist')
+        lpe_netlist = kwargs.get('lpe_netlist')
+        if lpe_netlist and any([s == self.cell_name for s in str(lpe_netlist).split('/')]):
+            self.lpe_netlist = lpe_netlist
+        else:
+            self.lpe_netlist = None
 
         # Initialize subckt string
         self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
@@ -306,7 +312,7 @@ class Cell:
         for name, value in parameters.items():
             self.set_parameter(name, value)
 
-    def append_subckt_list(self, subckt_list):
+    def append_subckt_list(self, subckt_list, unique=True):
         """
         Append self to subckt list in right order
         """
@@ -314,9 +320,11 @@ class Cell:
             # First append all subcells to the list
             for instance_name in self.subcells:
                 cell = self.subcells[instance_name]
-                subckt_list = cell.append_subckt_list(subckt_list)
+                subckt_list = cell.append_subckt_list(subckt_list, unique=unique)
         # append self to list if not already present
-        if not any([self.cell_name == x.cell_name for x in subckt_list]):
+        if not unique:
+            subckt_list.append(self)
+        elif not any([self.cell_name == x.cell_name for x in subckt_list]):
             subckt_list.append(self)
         return subckt_list
 
@@ -401,6 +409,12 @@ class Cell:
         Return a list of all terminal objects
         """
         return list(self.terminals.values())
+
+    def get_unconnected_terminals(self):
+        """
+        Return a list of all unconnected terminal objects
+        """
+        return [t for t in self.terminals.values() if t.net is None]
 
     def get_all_nets(self):
         """
@@ -506,7 +520,7 @@ class Cell:
         for i in range(0, len(terminals)):
             self.connect(terminals[i], nets[i])
 
-    def insert(self, ta1: Terminal , ta2: Terminal, t1: Terminal, t2: Terminal):
+    def insert(self, ta1: Terminal, ta2: Terminal, t1: Terminal, t2: Terminal):
         """
         Connect self.t1 and self.t2 between Terminals ta1 and ta2
         """
@@ -563,15 +577,17 @@ class Cell:
         current_index = current_index + 1
         return f'{base}{current_col}{current_index}'
 
-    def get_subckts(self):
+    def get_subckts(self, unique=True):
         """
         Returns a ordered list of all unique subckts in Cell
         """
         subckts = []
         for cell_name in self.subcells:
             cell = self.subcells[cell_name]
-            subckts = cell.append_subckt_list(subckts)
+            subckts = cell.append_subckt_list(subckts, unique=unique)
         return subckts
+
+
 
     def get_spiceIn_subckt_string(self):
         # SUBCKTS
@@ -583,7 +599,7 @@ class Cell:
         s += self.get_subckt_string(remove_unconnected_terminals=False)
         return s
 
-    def get_subckt_string(self, remove_unconnected_terminals=True):
+    def get_subckt_string(self, remove_unconnected_terminals=True, use_model_name=True):
         """
         Return sub circuit declaration string
         """
@@ -634,14 +650,13 @@ class Cell:
         # SUBCELLS
         for key in self.subcells:
             c = self.subcells[key]
-            s += f"{c.get_instance_string()}"
+            s += f"{c.get_instance_string(use_model_name=use_model_name)}"
 
         # END
         s += f"ends {self.cell_name}\n"
         return s
 
-
-    def get_instance_string(self):
+    def get_instance_string(self, use_model_name=True):
         """
         Return instance string for netlist
         """
@@ -656,7 +671,13 @@ class Cell:
         t_list = self.get_sorted_terminal_list()
         for t in t_list:
             s += f" {t.net.name}"
-        s += " {} ".format(self.cell_name)
+        if use_model_name:
+            s += " {} ".format(self.model_name)
+        else:
+            s += " {} ".format(self.cell_name)
+        # Add CDL subtype if set
+        if not self.cdl_subtype is None:
+            s += f'$[{self.cdl_subtype}] '
         # Add parameters that is not None
         for name, param in self.parameters.items():
             s += f"{param.get_value_str()} "

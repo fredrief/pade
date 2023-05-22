@@ -216,9 +216,9 @@ class vdc(Cell):
         self.p = self.add_terminal("p")
         self.n = self.add_terminal("n")
         # Add properties
-        self.add_parameters({'dc': num2string(vdc), 'type': 'dc'})
+        self.add_parameters({'dc': num2string(vdc), 'type': 'dc', 'mag': 0})
         for key in kwargs:
-            self.set_parameter(keym, kwargs[key])
+            self.set_parameter(key, kwargs[key])
 
 
 class vccs(Cell):
