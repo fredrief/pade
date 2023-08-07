@@ -89,16 +89,19 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
 
     def __getitem__(self, item):
         try:
-            return self.__class__(self.trace[item], self.unit, f'{self.name}[{item}]',
+            return self.__class__(self.trace[item], self.unit, self.name,
              analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
         except IndexError:
-            return self.__class__(np.nan, self.unit, f'{self.name}[{item}]',
+            return self.__class__(np.nan, self.unit, self.name,
              analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
 
     def __repr__(self):
         if self.unit == '':
             return f'{num2string(self.trace, decimals=2)}'
         return "{:.2f~P}".format(self.to_quantity())
+
+    # def __str__(self):
+    #     return self.__repr__()
 
     def __len__(self):
         return len(self.trace)
@@ -192,6 +195,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             # If dsign < 0, we have a falling edge
             if dsign < 0 and edge.lower() in ['falling', 'both']:
                 return i
+            sign0 = sign1
         # If it never crossed
         return np.nan
 
@@ -223,7 +227,6 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         # If it never crossed
         return irise_list, ifall_list
 
-
     def at(self, x_sig, x_val, name=None, **kwargs):
         """
             Interpolate self as function of x_sig, at x_val
@@ -232,7 +235,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         x_sig = x_sig.trace if isinstance(x_sig, Signal) else x_sig
 
         try:
-            trace = interp1d(x_sig, self.trace, **kwargs)(x_val)
+            trace = interp1d(x_sig, self.trace, bounds_error=False, fill_value='extrapolate', **kwargs)(x_val)
         except ValueError as e:
             trace = np.nan
             warn(e)

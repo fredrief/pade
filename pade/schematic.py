@@ -183,11 +183,7 @@ class Cell:
 
         # For LPE netlist, do not parse, just return netlist
         # This will be used in the get subckt function
-        lpe_netlist = kwargs.get('lpe_netlist')
-        if lpe_netlist and any([s == self.cell_name for s in str(lpe_netlist).split('/')]):
-            self.lpe_netlist = lpe_netlist
-        else:
-            self.lpe_netlist = None
+        self.lpe_netlist = None
 
         # Initialize subckt string
         self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
@@ -332,6 +328,8 @@ class Cell:
         """
         Add subcell both in dict and as attribute
         """
+        if cell.instance_name in self.subcells:
+            warn(f'Cell {cell.instance_name} already exist in {self.instance_name}, will be overwritten!')
         self.subcells[cell.instance_name] = cell
 
     #TODO:  I think this overlaps with get_subckts
@@ -595,16 +593,16 @@ class Cell:
         subckts = self.get_subckts()
         for cell in subckts:
             if cell.declare_subckt:
-                s += cell.get_subckt_string() + "\n"
-        s += self.get_subckt_string(remove_unconnected_terminals=False)
+                s += cell.get_subckt_string(remove_unconnected_terminals=False, spice_in=True) + "\n"
+        s += self.get_subckt_string(remove_unconnected_terminals=False, spice_in=True)
         return s
 
-    def get_subckt_string(self, remove_unconnected_terminals=True, use_model_name=True):
+    def get_subckt_string(self, remove_unconnected_terminals=True, use_model_name=True, spice_in=False):
         """
         Return sub circuit declaration string
         """
         # If lpe_netlist is set, return directly
-        if self.lpe_netlist is not None:
+        if self.lpe_netlist is not None and not spice_in:
             s = ""
             with open(self.lpe_netlist, 'r') as f:
                 for line in f.readlines():
@@ -717,10 +715,11 @@ class Cell:
         Set the library of all subcells to self.lib_name
         """
         for iname, cell in self.subcells.items():
-            # Give lib_name to cell
-            cell.lib_name = self.lib_name
-            # As cell to do the same for all subcells
-            cell.set_library_on_all_cells()
+            if cell.declare_subckt:
+                # Give lib_name to cell
+                cell.lib_name = self.lib_name
+                # As cell to do the same for all subcells
+                cell.set_library_on_all_cells()
 
 
 
@@ -1025,7 +1024,7 @@ class Design(Cell):
         super().__init__(cell_name, cell_name, **kwargs)
         self.add_net('0')
         # Initial conditions
-        self.ic = get_kwarg(kwargs, 'ic')
+        self.ic = kwargs.get('ic', {})
 
 
     def get_cell_meta(self):

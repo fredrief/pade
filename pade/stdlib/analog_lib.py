@@ -95,7 +95,7 @@ class res(Cell):
         self.p = self.add_terminal("p")
         self.n = self.add_terminal("n")
         # Add properties
-        self.add_parameters({'r': num2string(R)})
+        self.add_parameters({'r': R})
 
 class cap(Cell):
     """
@@ -130,7 +130,7 @@ class idc(Cell):
     DC Current source
     Terminals: p, n
     """
-    def __init__(self, instance_name, parent_cell, idc):
+    def __init__(self, instance_name, parent_cell, idc, **kwargs):
         # Call super init
         super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
@@ -138,6 +138,8 @@ class idc(Cell):
         self.n = self.add_terminal("n")
         # Add properties
         self.add_parameters({'dc': num2string(idc), 'type': 'dc'})
+        for key in kwargs:
+            self.set_parameter(key, kwargs[key])
 
 class vsin(Cell):
     """
@@ -331,3 +333,20 @@ class diffstbprobe(Cell):
         # Add properties
         for key in parameters:
             self.set_parameter(key, parameters[key])
+
+
+class nport(Cell):
+    """
+    nport
+    """
+    def __init__(self, instance_name, parent_cell, n, file):
+        # Call super init
+        super().__init__('nport', instance_name, parent_cell, declare=False, library_name="analog_lib")
+        # Add terminals
+        terminals = []
+        for i in range(n):
+            terminals += [f'p{i+1}', f'm{i+1}']
+        self.add_multiple_terminals(terminals)
+        self.add_parameters({
+            'file': file,
+        })

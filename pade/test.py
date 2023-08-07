@@ -25,6 +25,8 @@ class Test:
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
         self.output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []
+        self.skip_sim = kwargs.get('skip_sim', False)
+        self.skip_parse = kwargs.get('skip_parse', False)
         # Add all signal names from expressions
         self.append_netlist = kwargs['append_netlist'] if 'append_netlist' in kwargs else []
         self.global_nets = kwargs['global_nets'] if 'global_nets' in kwargs else '0'
@@ -97,7 +99,8 @@ class Test:
         """
         sim = self.simulator
         parser = PSFParser(self.output_dir, f'{self.sim_name}_{self.corner.name}')
-        self.used_cache = sim.run(cache=cache)
+        if not self.skip_sim:
+            self.used_cache = sim.run(cache=cache)
         # Plot using skill
         if self.SkillPlot:
             self.SkillPlot.plot(self.skill_dir, self.output_dir)
@@ -105,7 +108,8 @@ class Test:
         if self.debug:
             display('Debug mode active: Terminating Program')
             quit()
-        parser.parse()
+        if not self.skip_parse:
+            parser.parse()
 
         # Store signals
         self.signals = parser.signals

@@ -432,6 +432,9 @@ class Pattern:
     def get_box_list(self):
         return copy.deepcopy(self.box_list)
 
+    def get_bounding_box(self):
+        return Box((self.x_min(), self.y_min()), (self.x_max(), self.y_max()))
+
     def reset_box_list(self):
         self.box_list = []
 
@@ -442,7 +445,6 @@ class Pattern:
             return sorted(self.box_list, key=area_f, reverse=reverse)
         else:
             raise NotImplementedError()
-
 
     def set_pattern(self, pattern):
         """

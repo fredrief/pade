@@ -171,6 +171,15 @@ class LayoutItem:
         p.add_box(Box(origin=instance.box.lower_left()-margin, opposite_corner=instance.box.upper_right()+margin), absolute_position=True)
         self.print_pattern(p)
 
+    def add_bbox_enclosure(self, box, layer, purpose, margin=0):
+        """
+        Adds enclosure around a bounding box
+        """
+        p = Pattern(layer=layer, purpose=purpose, origin=box.lower_left())
+        p.add_box(Box(origin=box.lower_left()-margin, opposite_corner=box.upper_right()+margin), absolute_position=True)
+        self.print_pattern(p)
+        return p
+
     def has_something_to_print(self):
         # If all lists are empty, return False
         return any([len(l)!=0 for l in [
@@ -380,12 +389,6 @@ class LayoutItem:
         #     # Assign the net to the path seg
         #     self.ws.db.add_fig_to_net(path_id, net)
 
-
-
-
-
-
-
     def print_via(self, via):
         if self.cell_view is None:
             self.open_layoutview()
@@ -433,15 +436,17 @@ class LayoutInstance:
         # Print this layout item in paren layout
         lay_inst = parent_layout_item.print_instance(lay_item)
         # edit all cdf parameters of cell in instance
-        run_callbacks = kwargs.get('run_callbacks', True)
         for name, param in cell.parameters.items():
             if param.is_CDF:
-                lay_inst.edit_cdf_param(name, param.value, run_callbacks=run_callbacks)
+                try:
+                    lay_inst.edit_cdf_param(name, param.value)
+                except:
+                    pass
 
         # Add extra CDF parameters
         cdf_params = kwargs.get('CDF_params', {})
         for name, param in cdf_params.items():
-            lay_inst.edit_cdf_param(name, param.value, run_callbacks=run_callbacks)
+            lay_inst.edit_cdf_param(name, param.value)
 
         # Update inst transform
         lay_inst.update_transform(lay_inst.inst.transform)
@@ -555,9 +560,6 @@ class LayoutInstance:
         Return transformed property pname.
         Craches if it fails
         """
-        transform = self.transform
-        translation = Vector(transform[0])
-        # Finally return coordinate
         try:
             c = self.get_property(pname)
         except:
@@ -647,56 +649,72 @@ class LayoutInstance:
     def translate(self, translation):
         self.set_origin(self.get_inst_origin() + translation)
 
-    def align_top(self, other , margin=0):
+    def align_top(self, other, margin=0, parent=None):
         """
         Place self on top of other with specified margin
         """
         # Calculate translation in y-direction
-        translation = Vector([self.box.x_min(), self.box.y_min()], [other.box.x_min(), other.box.y_max() + margin])
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
+        translation = Vector([self.box.x_min(), self.box.y_min()], [otherbox.x_min(), otherbox.y_max() + margin])
         self.translate(translation)
 
-
-    def align_hcenter(self, other):
+    def align_hcenter(self, other, parent=None):
         """
         Horisontally center self relative to other
         """
         # Calculate translation in y-direction
-        translation = Vector(self.box.center(), [other.box.center()[0], self.box.center()[1]])
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
+        translation = Vector(self.box.center(), [otherbox.center()[0], self.box.center()[1]])
         self.translate(translation)
 
-    def align_vcenter(self, other):
+    def align_vcenter(self, other, parent=None):
         """
         Vertically center self relative to other
         """
         # Calculate translation in y-direction
-        translation = Vector(self.box.center(), [self.box.center()[0], other.box.center()[1]])
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
+        translation = Vector(self.box.center(), [self.box.center()[0], otherbox.center()[1]])
         self.translate(translation)
 
-    def align_below(self, other , margin=0):
+    def align_below(self, other , margin=0, parent=None):
         """
         Place self below of other with specified margin
         """
         # Calculate translation in y-direction
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
         translation = Vector(
             [self.box.x_min(), self.box.y_max()],
-            [other.box.x_min(), other.box.y_min() - margin])
+            [otherbox.x_min(), otherbox.y_min() - margin])
         self.translate(translation)
 
-
-    def align_right(self, other , margin=0):
+    def align_right(self, other , margin=0, parent=None):
         """
         Place self right of other with specified margin
         """
         # Calculate translation in y-direction
-        translation = Vector([self.box.x_min(), self.box.y_min()], [other.box.x_max() + margin, other.box.y_min()])
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
+        translation = Vector([self.box.x_min(), self.box.y_min()], [otherbox.x_max() + margin, otherbox.y_min()])
         self.translate(translation)
 
-    def align_left(self, other , margin=0):
+    def align_left(self, other , margin=0, parent=None):
         """
         Place self left of other with specified margin
         """
         # Calculate translation in y-direction
-        translation = Vector([self.box.x_max(), self.box.y_min()], [other.box.x_min() - margin, other.box.y_min()])
+        otherbox = other.box
+        if parent:
+            otherbox = Box(parent.transform_bbox(other.box.to_list()))
+        translation = Vector([self.box.x_max(), self.box.y_min()], [otherbox.x_min() - margin, otherbox.y_min()])
         self.translate(translation)
 
     def set_xmin(self, xmin):
@@ -705,6 +723,13 @@ class LayoutInstance:
         TODO: Does not handle rotated objects
         """
         translation = Vector([self.box.x_min(), 0], [xmin, 0])
+        self.translate(translation)
+
+    def set_xmax(self, xmax):
+        """
+        Translate to achieve targer xmax
+        """
+        translation = Vector([self.box.x_max(), 0], [xmax, 0])
         self.translate(translation)
 
     def set_ymin(self, ymin):
@@ -725,8 +750,7 @@ class LayoutInstance:
         translation = Vector(self.box.center(), center)
         self.translate(translation)
 
-
-    def edit_cdf_param(self, cdf_param_name, value, run_callbacks=True):
+    def edit_cdf_param(self, cdf_param_name, value):
         """
         Modify CDF Param of self
         """
@@ -828,7 +852,6 @@ class LayoutInstance:
         layer = pin.fig.layer_name
         port = Port(terminal_name, layer, box)
         return port
-
 
     def get_height(self):
         cv = self.ws.db.open_cell_view_by_type(self.lib_name, self.cell_name, "layout", "maskLayout", "r")

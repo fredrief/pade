@@ -31,7 +31,7 @@ class Spectre(object):
         self.global_nets = get_kwarg(kwargs, 'global_nets', '0')
 
         self.corner = get_kwarg(kwargs, 'corner')
-        self.sim_name=sim_name
+        self.sim_name = sim_name
         self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', 0)
 
     def _get_analyses_string(self):
@@ -199,10 +199,10 @@ class Spectre(object):
                 if progress_line:
                     progress = float(line_s.split(' %')[0].split('(')[1])
                     analysis = line_s.split(':')[0].strip()
-                    if not analysis in ['ac', 'tran', 'montecarlo_tran', 'noise', 'stb', 'dc']:
+                    if not analysis in ['ac', 'tran', 'noise', 'stb', 'dc', 'montecarlo_ac', 'montecarlo_tran', 'montecarlo_noise', 'montecarlo_stb', 'montecarlo_dc']:
                         continue
                     self.tq.update(progress-p0)
-                    self.tq.set_description(f'{analysis} {corner.name}')
+                    self.tq.set_description(f'{self.sim_name} {analysis} {corner.name}')
                     p0 = progress
                     # Close tq
             self.tq.close()
