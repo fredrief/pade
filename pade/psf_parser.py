@@ -1,24 +1,20 @@
-from pade import ureg
+from pade import *
 from pade.signal import Signal
-from pade.ssh_utils import SSH_Utils
-from pade.utils import file_exist
+from pade.utils import get_unit
 from psf_utils import PSF, Quantity
 from shlib import ls, to_path, mkdir, rm
 from numbers import Number
 import pandas as pd
 import numpy as np
-import subprocess
-import os
-import yaml
+import re
 
 class PSFParser(object):
     """
     Helper class for parsing psfascii files
     """
-    def __init__(self, logger, output_dir, sim_name, **kwargs):
+    def __init__(self, output_dir, sim_name, **kwargs):
         """
         """
-        self.logger = logger
         self.output_dir = output_dir
         self.sim_name = sim_name
         # Dictionary for holding signals
@@ -30,10 +26,10 @@ class PSFParser(object):
         Parse psf file into traces
 
         Parameters:
-            logger: Logger
-                Logger object
             mcrun: int
                 If running a montecarlo analysis, specify the run number. This will add to the parsed signal output
+            sim_name:
+                unique identifier for simulation
         """
         raw_files = ls(self.output_dir)
 
@@ -43,19 +39,32 @@ class PSFParser(object):
             if not self.is_valid_analysis(filename):
                 continue
             analysis_name = filename.split('.')[0]
-            self.logger.info(f'PARSING PSF FILE: {self.sim_name}/{filename}')
+            display(f'PARSING PSF FILE: {filename} ({self.sim_name})')
+
+            # The parsing of DcOpInfo will chrash if the file contains "inf"
+            # Modify the file to replace inf by nan
+            if 'dcOpInfo' in filename:
+                tmp = ""
+                with open(file, 'r') as f:
+                    for line in f.readlines():
+                        tmp += line.replace('inf', 'nan')
+
+                with open(file, 'w') as f:
+                    f.writelines(tmp)
+
             # Parsing might fail
             try:
                 psf = PSF(file)
             except Exception as err:
-                self.logger.warning(f'Could not parse file {file}, error occurred: {err}')
+                warn(f'Could not parse file {file}, error occurred: {err}')
                 continue
             for signal in psf.all_signals():
                 if isinstance(signal.ordinate, Quantity):
                     trace = np.array([signal.ordinate.real + 1j*signal.ordinate.imag])
                 else:
                     trace = signal.ordinate
-                unit = getattr(ureg, signal.units.replace('sqrt(Hz)', 'hertz**0.5')) if signal.units else None
+
+                unit = get_unit(signal)
                 q = ureg.Quantity(trace, unit)
                 s = Signal(trace, q.units, name=signal.name, analysis=analysis_name, simulation=self.sim_name, sweep=False)
                 self.signals[f'{self.sim_name}:{analysis_name}:{s.name}'] = s
@@ -73,10 +82,12 @@ class PSFParser(object):
         Check if analysis (filename) is a valid result file
         """
         res = True
-        valid_types = ['tran', 'ac', 'dc', 'info', 'stb', 'noise']
+        valid_types = ['tran', 'ac', 'dc', 'info', 'stb', 'noise', 'pss', 'pnoise']
         # logFile etc..
         if len(filename.split('.')) < 2:
             res = False
+        elif 'margin.stb' in filename:
+            res = False # stb.margin not supported
         else:
             t = filename.split('.')[-1]
             res = t in valid_types
@@ -94,7 +105,17 @@ class PSFParser(object):
         if identifier in self.signals:
             return self.signals[identifier]
         else:
-            raise RuntimeError(f'Signal does not exist: Name {name}, Analysis {analysis}')
+            warn(f'Signal {name} from analysis {analysis} not available. Returning NaN')
+            return np.nan
+
+    def get_signal_list(self, sig_name_regex, analysis):
+        identifier = f'{sig_name_regex}'
+        sig_list = []
+        for name, sig in self.signals.items():
+            if not re.search(identifier, name) is None:
+                sig_list.append(sig)
+        return sig_list
+
 
     def add_signal(self, signal):
         if isinstance(signal, Signal):

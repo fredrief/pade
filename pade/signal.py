@@ -1,5 +1,5 @@
 from pade.utils import num2string
-from pade import ureg, Q_, info, display, warn, error, fatal
+from pade import ureg, Q_, display, warn
 from shlib import ls, to_path, mkdir
 from scipy.interpolate import interp1d
 import numpy as np
@@ -39,10 +39,16 @@ def mean(sig):
     "Implementation of np.mean for Signal objects"
     return Signal(np.mean(sig.trace), sig.unit, f'R({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
 
+@implements(np.sum)
+def sum(sig):
+    "Implementation of np.sum for Signal objects"
+    return Signal(np.sum(sig.trace), sig.unit, f'R({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
+
+
 @implements(np.angle)
-def angle(sig):
+def angle(sig, **kwargs):
     "Implementation of np.angle for Signal objects"
-    return Signal(np.angle(sig.trace), sig.unit, f'/_({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
+    return Signal(np.angle(sig.trace, **kwargs), sig.unit, f'/_({sig.name})', analysis=sig.analysis, simulation=sig.simulation, sweep=sig.sweep)
 
 @implements(np.conjugate)
 def conjugate(sig):
@@ -83,14 +89,19 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
 
     def __getitem__(self, item):
         try:
-            return self.__class__(self.trace[item], self.unit, f'{self.name}[{item}]',
+            return self.__class__(self.trace[item], self.unit, self.name,
              analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
         except IndexError:
-            return self.__class__(np.nan, self.unit, f'{self.name}[{item}]',
+            return self.__class__(np.nan, self.unit, self.name,
              analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
 
     def __repr__(self):
+        if self.unit == '':
+            return f'{num2string(self.trace, decimals=2)}'
         return "{:.2f~P}".format(self.to_quantity())
+
+    # def __str__(self):
+    #     return self.__repr__()
 
     def __len__(self):
         return len(self.trace)
@@ -184,11 +195,39 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             # If dsign < 0, we have a falling edge
             if dsign < 0 and edge.lower() in ['falling', 'both']:
                 return i
+            sign0 = sign1
         # If it never crossed
         return np.nan
 
+    def all_cross(self, x_sig):
+        """
+            Return the all indices where self crosses x_sig
+        """
+        x = x_sig.trace if isinstance(x_sig, Signal) else x_sig
+        y = self.trace
+        irise_list = []
+        ifall_list = []
+        # Verify that the two traces are of same length
+        if not len(self.trace) == len(x_sig):
+            raise ValueError('x and y signal must be of same length')
 
-    def at(self, x_sig, x_val, name=None):
+        sign = lambda x: 1 if x>0 else -1
+        sign0 = sign(y[0]-x[0])
+        for i in range(1, len(y)):
+            sign1 = sign(y[i]-x[i])
+            dsign = sign1 - sign0
+            # If dsign > 0, we have a rising edge
+            if dsign > 0:
+                irise_list.append(i)
+                sign0 = sign1
+            # If dsign < 0, we have a falling edge
+            if dsign < 0:
+                ifall_list.append(i)
+                sign0 = sign1
+        # If it never crossed
+        return irise_list, ifall_list
+
+    def at(self, x_sig, x_val, name=None, **kwargs):
         """
             Interpolate self as function of x_sig, at x_val
         """
@@ -196,9 +235,10 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         x_sig = x_sig.trace if isinstance(x_sig, Signal) else x_sig
 
         try:
-            trace = interp1d(x_sig, self.trace)(x_val)
-        except ValueError:
+            trace = interp1d(x_sig, self.trace, bounds_error=False, fill_value='extrapolate', **kwargs)(x_val)
+        except ValueError as e:
             trace = np.nan
+            warn(e)
         try:
             trace = float(trace)
         except:
@@ -209,7 +249,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         """
             Return index corresponding to value of self that is closest to xval
         """
-        idx = (np.abs(self.trace - x_val)).argmin()
+        idx = int((np.abs(self.trace - x_val)).argmin())
         return idx
 
     def grad(self, x, name=None):
@@ -217,8 +257,31 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
             Return gradient of self wrt x
         """
         name = name if name else f"d{self.name}/d{x.name}"
+        unit = (self[-1] / x[-1]).unit
         trace = np.gradient(self.trace, x.trace)
-        return Signal(trace, self.unit, name, analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+
+        return Signal(trace, unit, name, analysis=self.analysis, simulation=self.simulation, sweep=self.sweep)
+
+    def integrate(self, sweep, start=0, stop=-1, name=None):
+        """
+            Integrate self wrt sweep
+            start, stop: index
+        """
+        name = name if name else f"I({self.name})d{sweep.name}"
+        unit = (self[0]*sweep[0]).unit
+        res = np.trapz(self.trace[start:stop], x=sweep.trace[start:stop])
+        return Signal(res, unit, name, self.analysis, self.simulation)
+
+    def average(self, sweep, start=0, stop=-1, name=None):
+        """
+            Compute avg of self wrt sweep
+            start, stop: index
+        """
+        name = name if name else f"I({self.name})d{sweep.name}"
+        I = self.integrate(sweep, start=start, stop=stop).trace
+        sweep_interval = sweep.trace[stop-1] - sweep.trace[start]
+        return Signal(I/sweep_interval, self.unit, name, self.analysis, self.simulation)
+
 
     def set_status(self, status):
         """
@@ -235,7 +298,7 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         """
         q = ureg.Quantity(self.trace, self.unit)
         # Try to convert to derived units
-        derived_units = ['W', 'mho', 'F']
+        derived_units = ['W', 'mho', 'F', 'ohm']
         for u in derived_units:
             try:
                 q = q.to(u)

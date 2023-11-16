@@ -5,11 +5,9 @@ class Corner:
     """
     For corner setup
     """
-    def __init__(self, model_file, temp=27, name=None):
-        self.model_file = model_file
-        self.temp = temp
-        # Use the model_file as default corner name
-        self.name = name if name else model_file
+    def __init__(self, name, corner_string):
+        self.name = name
+        self.corner_string = corner_string
 
     def __str__(self) -> str:
         return self.name
@@ -17,36 +15,12 @@ class Corner:
     def __repr__(self) -> str:
         return self.name
 
-class Typical(Corner):
-    """
-    Default typical corner
-    """
-    def __init__(self):
-        super().__init__('tt_pre', 27, name='Typical')
-
-class Fast(Corner):
-    """
-    Default fast corner
-    """
-    def __init__(self):
-        super().__init__('ff_pre', 140, name='Fast')
-
-class Slow(Corner):
-    """
-    Default slow corner
-    """
-    def __init__(self):
-        super().__init__('ss_pre', -40, name='Slow')
+    def get_string(self) -> str:
+        return self.corner_string
 
 
-class Mc(Corner):
-    """
-    Default montecarlo corner
-    """
-    def __init__(self):
-        super().__init__('mc_pre', 27, name='mc')
 
-class Analysis(object):
+class Analysis:
     """
     Abstract analysis class
     An analysis is initialized by a name and a dictionary of paramaters.
@@ -66,6 +40,60 @@ class Analysis(object):
             self.netlist_string += f"{param}={num2string(value)} "
         return self.netlist_string
 
+class Option:
+    """
+    General option to append to netlist
+    """
+    def __init__(self, option_string):
+        self.option_string = option_string
+
+    def get_netlist_string(self):
+        return self.option_string
+
+
+class pss(Analysis):
+    """
+    Periodic Steady-State
+    """
+    def __init__(self, nodes=None, name='pss', parameters={}):
+        self.nodes = nodes
+        self.autonomous = (nodes is not None)
+        super().__init__(name, type='pss', parameters=parameters)
+
+
+    def get_netlist_string(self):
+        # Overwrite function for writing netlist
+        self.netlist_string = f"{self.name} "
+        if self.nodes is not None:
+            self.netlist_string += f"{self.nodes[0]} {self.nodes[0]} "
+        self.netlist_string += f"{self.type} "
+        for param in self.parameters:
+            value = self.parameters[param]
+            self.netlist_string += f"{param}={num2string(value)} "
+        return self.netlist_string
+
+class pnoise(Analysis):
+    """
+    Periodic noise
+    """
+    def __init__(self, nodes=None, name='pnoise', parameters={}):
+        self.nodes = nodes
+        self.autonomous = (nodes is not None)
+        super().__init__(name, type='pnoise', parameters=parameters)
+
+
+    def get_netlist_string(self):
+        # Overwrite function for writing netlist
+        self.netlist_string = f"{self.name} "
+        if self.nodes is not None:
+            self.netlist_string += f"{self.nodes[0]} {self.nodes[0]} "
+        self.netlist_string += f"{self.type} "
+        for param in self.parameters:
+            value = self.parameters[param]
+            self.netlist_string += f"{param}={num2string(value)} "
+        return self.netlist_string
+
+
 class tran(Analysis):
     """
     Transient analysis
@@ -80,7 +108,8 @@ class tran(Analysis):
         }
         p = default_params
         for param in parameters:
-            p[param] = parameters[param]
+            if not parameters[param] is None:
+                p[param] = parameters[param]
         super().__init__(name, type='tran', parameters=p)
 
 class dc(Analysis):
@@ -114,6 +143,7 @@ class dcOpInfo(Analysis):
         for param in parameters:
             p[param] = parameters[param]
         super().__init__(name, type=type, parameters=p)
+
 
 class initial_condition(Analysis):
     """
