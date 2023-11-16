@@ -40,6 +40,17 @@ class Analysis:
             self.netlist_string += f"{param}={num2string(value)} "
         return self.netlist_string
 
+class Option:
+    """
+    General option to append to netlist
+    """
+    def __init__(self, option_string):
+        self.option_string = option_string
+
+    def get_netlist_string(self):
+        return self.option_string
+
+
 class pss(Analysis):
     """
     Periodic Steady-State

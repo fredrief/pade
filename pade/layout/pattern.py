@@ -31,6 +31,14 @@ class Box:
                 origin = Coordinate(origin)
             self.origin = origin
             self.diagonal = Vector((w, h))
+        elif all([(s in kwargs) for s in ['center', 'w', 'h']]):
+            center = kwargs['center']
+            w = kwargs['w']
+            h = kwargs['h']
+            self.diagonal = Vector((w, h))
+            if not isinstance(center, Coordinate):
+                center = Coordinate(center)
+            self.set_origin(center=kwargs['center'])
         elif all([(s in kwargs) for s in ['origin', 'diagonal']]):
             origin = kwargs['origin']
             diagonal = kwargs['diagonal']
@@ -549,3 +557,43 @@ class Pattern:
             translation = -Vector(p0, p1)
             pattern.translate(translation, in_place=True)
         return pattern
+
+
+class Ring(Pattern):
+    """
+    Ring
+    """
+    def __init__(self, pattern: Pattern) -> None:
+        super().__init__(pattern = pattern)
+
+    def top_box(self):
+        """
+        Returns top box
+        """
+        box_ymax_list = [b.center()[1] for b in self.box_list]
+        b_top = [b for b in self.get_box_list() if b.center()[1] == max(box_ymax_list)][0]
+        return b_top
+
+    def bottom_box(self):
+        """
+        Returns bottom box
+        """
+        box_ymax_list = [b.center()[1] for b in self.box_list]
+        b_bot = [b for b in self.get_box_list() if b.center()[1] == min(box_ymax_list)][0]
+        return b_bot
+
+    def left_box(self):
+        """
+        Returns left box
+        """
+        box_xmax_list = [b.center()[0] for b in self.box_list]
+        b_left = [b for b in self.get_box_list() if b.center()[0] == min(box_xmax_list)][0]
+        return b_left
+
+    def right_box(self):
+        """
+        Returns right box
+        """
+        box_xmax_list = [b.center()[0] for b in self.box_list]
+        b_right = [b for b in self.get_box_list() if b.center()[0] == max(box_xmax_list)][0]
+        return b_right

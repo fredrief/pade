@@ -78,7 +78,7 @@ def num2string(val, asint=False, decimals=8, nodot=False):
     if asint or decimals < 1 or isinstance(val, int):
         numstring = f'{round(val)}' + prefix
     elif nodot:
-        val0 = round(val)
+        val0 = int(np.floor(val))
         val1 = val-val0
         val1 = round(np.ceil(val1*10**(decimals)))
         numstring = f'{val0}{prefix}'

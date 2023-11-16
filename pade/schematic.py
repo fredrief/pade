@@ -332,6 +332,18 @@ class Cell:
             warn(f'Cell {cell.instance_name} already exist in {self.instance_name}, will be overwritten!')
         self.subcells[cell.instance_name] = cell
 
+    def remove_subcell(self, cell):
+        """
+        Remove cell from subcells
+        """
+        if not cell.instance_name in self.subcells:
+            warn(f'Cell {cell.instance_name} does not exist in {self.instance_name}, cannot be removed!')
+        self.subcells.pop(cell.instance_name, None)
+
+    def disconnect(self):
+        self.parent_cell.remove_subcell(self)
+
+
     #TODO:  I think this overlaps with get_subckts
     def get_subcells(self):
         """

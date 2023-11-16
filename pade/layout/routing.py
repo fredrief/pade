@@ -81,6 +81,8 @@ class Route:
         self.tech_file = kwargs.get('tech_file')
         self.purpose = kwargs.get('purpose', 'drawing')
         self.ncvias = kwargs.get('ncvias') # Corner vias
+        self.cvia_rows = kwargs.get('cvia_rows') # Corner vias direction
+        self.cvia_cols = kwargs.get('cvia_cols') # Corner vias direction
         if isinstance(start, Port):
             # If port, use center
             self.start = start.box.center()
@@ -228,13 +230,18 @@ class Route:
                 ncols = 2 if orient == 'h' else 1
             else:
                 nrows = ncols = self.ncvias
+            if not self.cvia_cols is None:
+                ncols = self.cvia_cols
+            if not self.cvia_rows is None:
+                nrows = self.cvia_rows
+
             l0 = int(self.layer[0][-1])
             l1 = int(self.layer[1][-1])
             m1 = np.max((l0, l1))
             m0 = np.min((l0, l1))
             via_name = f'M{m1}_M{m0}'
             if m1 == 5:
-                via_name = 'TM_M4'
+                via_name = 'TM_M4' #TODO: This is GF130 specific. Should solve this differently
                 if self.ncvias is None:
                     nrows = self.width if self.width > 2 else 2
                 else:

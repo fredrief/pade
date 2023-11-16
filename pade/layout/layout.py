@@ -262,7 +262,7 @@ class LayoutItem:
 
         # Add pattern and return for reference
         self.add_pattern(ring_pattern)
-        return ring_pattern
+        return Ring(ring_pattern)
 
 
     def get_all_instances(self, recursive=False):
