@@ -3,7 +3,6 @@ from typing import List
 from pade.psf_parser import PSFParser
 from pade.spectre import Spectre as Simulator
 from pade.evaluation import Evaluation, Expression
-from pade.utils import get_kwarg
 from pade import *
 from shlib.shlib import lsf, rm, to_path, mkdir
 import matplotlib.pyplot as plt
@@ -18,10 +17,10 @@ class Test:
         self.design = design
         self.project_name = project_root_dir.name
         self.expressions = expressions
-        self.corner = get_kwarg(kwargs, 'corner')
-        self.sim_name = get_kwarg(kwargs, 'sim_name', self.corner.name)
-        self.run_index = get_kwarg(kwargs, 'run_index', 0)
-        self.tqdm_pos = get_kwarg(kwargs, 'tqdm_pos', self.run_index)
+        self.corner = kwargs.get('corner')
+        self.sim_name = kwargs.get('sim_name', self.corner.name)
+        self.run_index = kwargs.get('run_index', 0)
+        self.tqdm_pos = kwargs.get('tqdm_pos', self.run_index)
         self.debug = kwargs['debug'] if 'debug' in kwargs else False
         self.mcoptions = kwargs['mcoptions'] if 'mcoptions' in kwargs else None
         self.output_selections = kwargs['output_selections'] if 'output_selections' in kwargs else []

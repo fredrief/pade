@@ -1,5 +1,5 @@
 from pade.schematic import Cell
-from pade.utils import get_kwarg, num2string
+from pade.utils import num2string
 from shlib import to_path
 import os
 
@@ -43,8 +43,8 @@ class relay(Cell):
         self.set_parameter('ropen', ropen)
         self.set_parameter('rclosed', rclosed)
 
-        self.set_parameter('vt1', get_kwarg(parameters, 'vt1', 0.3))
-        self.set_parameter('vt2', get_kwarg(parameters, 'vt1', 0.7))
+        self.set_parameter('vt1', parameters.get('vt1', 0.3))
+        self.set_parameter('vt2', parameters.get('vt1', 0.7))
 
         for key in parameters:
             self.set_parameter(key, parameters[key])

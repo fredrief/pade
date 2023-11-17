@@ -1,7 +1,5 @@
-from symbol import return_stmt
-from pade.utils import num2string, get_kwarg, append_dict
+from pade.utils import num2string, append_dict
 import re
-import json
 from inform import warn, debug
 
 class Terminal:
@@ -181,12 +179,12 @@ class Cell:
             except Exception as e:
                 warn(f'Could not extract Cell {self.cell_name} from netlist.')
 
-        # For LPE netlist, do not parse, just return netlist
+        # For LPE netlist, do not parse given netlist, just return directly
         # This will be used in the get subckt function
         self.lpe_netlist = None
 
         # Initialize subckt string
-        self.declare_subckt = get_kwarg(kwargs, 'declare', default=True)
+        self.declare_subckt = kwargs.get('declare', True)
         # AHDL Filepath
         self.ahdl_filepath = ""
         # Include filepath (additional filepath to include)
@@ -733,301 +731,6 @@ class Cell:
                 # As cell to do the same for all subcells
                 cell.set_library_on_all_cells()
 
-
-
-class LayoutCell(Cell):
-    """
-    Extends Cell with functionality for generating Layout
-    TODO: Support symbol
-    """
-    def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
-        super().__init__(cell_name, instance_name, parent_cell, **kwargs)
-        self.cic_class = kwargs.get('cic_class', "Layout::LayoutDigitalCell")
-        # Definition for json object file
-        self.cell_definition = {
-            "name": self.cell_name,
-            "class": self.cic_class,
-        }
-
-        # Parameters for Spice netlist file
-        self.layout_parameters = kwargs.get('layout_parameters', {})
-
-    def add_layout_parameter(self, key, value):
-        # Parameters for Spice netlist file
-        self.layout_parameters[key] = value
-
-    def _get_lay_cic_spice_subckt_string(self):
-        """
-        Return subcircuit definition for cic spice layout files
-        """
-        s = f".SUBCKT {self.cell_name}"
-        # TERMINALS
-        for t in self.get_sorted_terminal_list():
-            s += f' {t.name}'
-        s += "\n"
-        # SUBCELLS
-        for key in self.subcells:
-            c = self.subcells[key]
-            s += f"{c._get_lay_cic_spice_instance_string()}"
-        # END
-        s += f".ENDS {self.cell_name}\n\n"
-        return s
-
-    def _get_lay_cic_spice_instance_string(self):
-        """
-        Return instance string for cic spice layout files
-        """
-        # All terminals of cell must be connected to nets before instance string can be generated
-        if any([t.net is None for t in self.terminals.values()]):
-            unconnected_terminals = []
-            for t in self.terminals.values():
-                if t.net is None:
-                    unconnected_terminals.append(t.name)
-            raise RuntimeError(f'Cell {self.instance_name} has unconnected terminals: {unconnected_terminals}')
-        s  = f"{self.instance_name}"
-        t_list = self.get_sorted_terminal_list()
-        for t in t_list:
-            s += f" {t.net.name}"
-        s += " {} ".format(self.cell_name)
-
-        for p in self.layout_parameters:
-            if self.layout_parameters[p] is not None:
-                s += "{}={} ".format(p, num2string(self.layout_parameters[p]))
-        s += "\n"
-        return s
-
-    def get_layout_cic_spice(self):
-        netlist = ""
-        # First append netlist from all subckts
-        subckts = self.get_subckts()
-        for cell in subckts:
-            if isinstance(cell, LayoutCell):
-                netlist += cell._get_lay_cic_spice_subckt_string()
-
-        # Then append self
-        netlist += self._get_lay_cic_spice_subckt_string()
-        return netlist
-
-
-    def write_object_definition_file(self, filename, header={}, options={}, include_json_list=[]):
-        self.object_definition_dict = {}
-        self.object_definition_dict['header'] = header
-        self.object_definition_dict['options'] = options
-        self.object_definition_dict['cells'] = []
-
-        # json files to include
-        cell_name_list = [] # List to keep track of cells in dict
-        for json_file in include_json_list:
-            with open(json_file, 'r') as f:
-                d = json.load(f)
-                for cell in d['cells']:
-                    self.object_definition_dict['cells'].append(cell)
-                    if 'name' in cell:
-                        cell_name_list.append(cell['name'])
-
-        # Append cell definition of all subcells
-        subckts = self.get_subckts()
-        for cell in subckts:
-            # Do not add cell if already in dict
-            if isinstance(cell, LayoutCell) and not cell.cell_name in cell_name_list:
-                self.object_definition_dict['cells'].append(cell.cell_definition)
-                cell_name_list.append(cell.cell_name)
-
-        # Then append self
-        self.object_definition_dict['cells'].append(self.cell_definition)
-
-        with open(filename, 'w') as f:
-            json.dump(self.object_definition_dict, f)
-
-    def write_layout_cic_spice(self, filename, append_spi_file=None):
-        netlist = self.get_layout_cic_spice()
-        if append_spi_file:
-            with open(append_spi_file, 'r') as fi:
-                append_netl = fi.read()
-                netlist += append_netl
-
-        with open(filename, 'w') as f:
-            f.write(netlist)
-
-    def set_properties(self, properties):
-        """
-        Set layout properties to object definition
-        """
-        self.append_cell_dict(properties)
-        # for key, value in properties.items():
-        #     self.cell_definition[key] = value
-
-    def has_property(self, p):
-        return p in self.cell_definition
-
-    def append_cell_dict(self, d):
-        self.cell_definition = append_dict(self.cell_definition, d)
-
-    def _get_port_name(self, port):
-        """
-        Helper function to get port_name from port to handle different types
-        """
-        if isinstance(port, Terminal):
-            port_name = port.name
-        elif isinstance(port, str):
-            port_name = port
-        else:
-            raise ValueError(f'Invalid port: {port}, must be string or Terminal')
-        return port_name
-
-    def _get_net_name(self, net):
-        """
-        Helper function to get net_name from net to handle different types
-        """
-        if isinstance(net, Net):
-            net_name = net.name
-        elif isinstance(net, str):
-            net_name = net
-        elif isinstance(net, Terminal):
-            net_name = net.name
-            if not net_name in self.nets:
-                raise ValueError(f'Net: {net}, does not exist in {self}')
-        else:
-            raise ValueError(f'Invalid net: {net}, must be string, Net Terminal')
-        return net_name
-
-    def add_port_on_rect(self, port, layer_name, rect=None):
-        """
-        Add port on rect after route
-        Also add terminal
-        """
-        port_name = self._get_port_name(port)
-        # Add port as terminal if not exist
-        if not port_name in self.terminals:
-            terminal = self.add_terminal(port_name)
-        else:
-            terminal = self.get_terminal(port_name)
-        # Build port dict
-        port_dict = {
-            "afterRoute": {
-                "addPortOnRects": [[
-                    port_name,
-                    layer_name,
-                ]]
-            }
-        }
-        if rect is not None:
-            port_dict["afterRoute"]["addPortOnRects"][0].append(self.get_hierarchy_string(rect))
-
-        self.append_cell_dict(port_dict)
-
-        # Finally connect terminal to net in current hierchy
-        if isinstance(rect, Terminal) and isinstance(port, Terminal):
-            net = self.add_net(self._get_net_name(port.name))
-            if rect.net is None:
-                rect.connect(net)
-
-
-
-
-
-    def add_directed_route(self, layer_name, net_name, route_command, options=[]):
-        route_dict = {
-            "beforeRoute": {
-                'addDirectedRoutes':
-                [[layer_name, net_name, route_command]]
-            }
-        }
-        opt_string = ''
-        for opt in options:
-            opt_string += opt
-            if not opt == options[-1]:
-                opt_string += ','
-        route_dict["beforeRoute"]["addDirectedRoutes"][0].append(opt_string)
-        self.append_cell_dict(route_dict)
-
-    def get_hierarchy_string(self, terminal):
-        """
-        Returns the string from self to port on the form (SC=sub circuit):
-        SC1:SC2:TERMINAL
-        """
-        if isinstance(terminal, str):
-            return terminal
-        elif isinstance(terminal, Terminal):
-            s = terminal.name
-            parent_cell = terminal.cell
-            while parent_cell is not self:
-                s = f'{parent_cell.instance_name}:{s}'
-                parent_cell = parent_cell.parent_cell
-            return s
-        else:
-            raise ValueError(f'Invalid terminal {terminal}')
-
-    def route(self, layer_name, net, from_port, to_port, route_type, options=[]):
-        route_cmd = f'{self.get_hierarchy_string(from_port)}{route_type}{self.get_hierarchy_string(to_port)}'
-
-        self.add_directed_route(layer_name, self._get_net_name(net), route_cmd, options=options)
-
-        self._deep_connect(from_port, net)
-        self._deep_connect(to_port, net)
-
-    def _deep_connect(self, port, net):
-        """
-        Connect port to net, where the port is allowed to be deep in the hiearchy, and the connection is made within self
-        """
-        # Add connection from ports to net if not present
-        net = self.add_net(self._get_net_name(net))
-        while port.cell is not self and port.cell.parent_cell is not self:
-            # Find the port in the right hiearchy level
-            port = port.cell.parent_cell.get_terminal(port.net.name)
-        if port.net is None:
-            port.connect(net)
-        elif not port.net.get_name_from_top() == net.get_name_from_top():
-            raise RuntimeError(f'You tried to route {port.get_name_from_top()} to {net.get_name_from_top()}, but {port.get_name_from_top()} is already connected to {port.net.get_name_from_top()}')
-
-
-    def add_via(self, start_layer, stop_layer, rect, horizontal_cuts, *args):
-        """
-        Add a via at an horizontal offset to a rectangle defined by a path regex
-
-        [ "M3",          //Start layer
-        "M4",          //Stop layer
-        "MP1:D",       //Path regex to find rectangle
-        2,             //Horizontal cuts
-        1,             //Vertical cuts       [optional]
-        8,             //Horizontal offset   [optional]
-        "CUST_VREF"    //Custom name for via [optional]
-        ]
-        """
-        via_dict = {
-            "beforeRoute": {
-                'addVias':
-                    [[start_layer,
-                    stop_layer,
-                    self.get_hierarchy_string(rect),
-                    horizontal_cuts
-                    ]]
-            }
-        }
-        for a in args:
-            via_dict["beforeRoute"]["addVias"][0].append(a)
-
-        self.append_cell_dict(via_dict)
-
-    def add_vertical_rect(self, layer_name, rect, cuts=0):
-        """
-        Adds a custom rectangle for the height of the module
-        ["M5",          //Layer
-        "CUST_C16",    //Path regex
-        1              //Cuts, default 0, if 0 then use rectangle width
-        ]
-        """
-        vr_dict = {
-            "beforeRoute": {
-                'addVerticalRects':
-                    [[layer_name,
-                    self.get_hierarchy_string(rect),
-                    cuts
-                    ]]
-            }
-        }
-        self.append_cell_dict(vr_dict)
-
 class Design(Cell):
     """
     Top-level design class
@@ -1035,7 +738,7 @@ class Design(Cell):
     def __init__(self, cell_name, **kwargs):
         super().__init__(cell_name, cell_name, **kwargs)
         self.add_net('0')
-        # Initial conditions
+        # Initial conditions (DEPRICATED)
         self.ic = kwargs.get('ic', {})
 
 
@@ -1107,19 +810,5 @@ class Design(Cell):
     def get_netlist_string(self):
         self.rewrite_netlist()
         return self.netlist_string
-
-
-class PatternCell(LayoutCell):
-    """
-    The basic unit cells
-    """
-    def __init__(self, cell_name, instance_name, parent_cell=None, **kwargs):
-        cic_class = kwargs.get('cic_class', "Gds::GdsPatternTransistor")
-        super().__init__(cell_name, instance_name, parent_cell, cic_class=cic_class,  **kwargs)
-
-    # Overwrite/disable layout subckt
-    def _get_lay_cic_spice_subckt_string(self):
-        return ""
-
 
 

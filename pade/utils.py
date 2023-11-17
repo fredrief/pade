@@ -112,12 +112,6 @@ def string2num(s_val):
 
     return base_val*exp
 
-
-def get_kwarg(dict, key, default=None):
-    """ Returns dict[key] if exist else default """
-    return dict[key] if key in dict else default
-
-
 # File handling
 
 def file_exist(filename):
