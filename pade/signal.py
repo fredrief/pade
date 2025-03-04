@@ -282,7 +282,6 @@ class Signal(numpy.lib.mixins.NDArrayOperatorsMixin):
         sweep_interval = sweep.trace[stop-1] - sweep.trace[start]
         return Signal(I/sweep_interval, self.unit, name, self.analysis, self.simulation)
 
-
     def set_status(self, status):
         """
         Specify if signal passed spec

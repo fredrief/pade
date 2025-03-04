@@ -25,7 +25,7 @@ def append_dict(d1, d2):
 
     return d1
 
-def num2string(val, asint=False, decimals=8, nodot=False):
+def num2string(val, asint=False, decimals=16, nodot=False):
     # Some special cases
     if isinstance(val, str):
         return val

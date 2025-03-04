@@ -202,7 +202,7 @@ class LayoutItem:
         Instantiate component. I build is True, the component will be built using the constructor, otherwise only instantiated from library
         """
         if build:
-            lay_item = lay_class(cell, **kwargs)
+            lay_item = lay_class(cell, build_list = [], **kwargs)
             lay_inst = self.print_instance(lay_item)
             return lay_inst
         else:
@@ -211,8 +211,7 @@ class LayoutItem:
             if not res is None:
                 lay_inst = LayoutInstance.from_cell(cell, self)
             else:
-                kwargs['build_layers'] = 10
-                lay_item = lay_class(cell, **kwargs)
+                lay_item = lay_class(cell, build_list = [], **kwargs)
                 lay_inst = self.print_instance(lay_item)
             return lay_inst
 
@@ -296,7 +295,7 @@ class LayoutItem:
         #     for inst in self.get_unique_instance_list():
         #         inst.print_layout(recursive=True)
 
-        display(f'Printing layout for instance: {self.instance_name}, cell: {self.cell_name}')
+        # display(f'Printing layout for instance: {self.instance_name}, cell: {self.cell_name}')
 
         # Write instances
         for instance in self.instance_list:
@@ -564,17 +563,19 @@ class LayoutInstance:
             c = self.get_property(pname)
         except:
             raise RuntimeError(f'Failed to get property {pname} from {self}')
+        if c is None:
+            raise ValueError(f'Property {pname} could not be converted to Coordinate or Box')
         # Check if is a coordinate
         try:
-            c = self.ws.db.transform_point(c, self.transform)
-            c = Coordinate(c)
+            _ = Coordinate(c)
+            c = Coordinate(self.ws.db.transform_point(c, self.transform))
             return c
         except:
             pass
         # Check if it is a b_box
         try:
-            b = self.transform_bbox(c)
-            b = Box(b)
+            _ = Box(c)
+            b = Box(self.transform_bbox(c))
             return b
         except:
             pass

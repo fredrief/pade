@@ -178,6 +178,14 @@ class Cell:
                 # debug(f'Extracted cell {self.cell_name} from file {netlist_filename}')
             except Exception as e:
                 warn(f'Could not extract Cell {self.cell_name} from netlist.')
+        spice_filename = kwargs.get('spice_filename')
+        if spice_filename:
+            try:
+                self.parse_spice(spice_filename, **kwargs)
+                # debug(f'Extracted cell {self.cell_name} from file {netlist_filename}')
+            except Exception as e:
+                warn(f'Could not extract Cell {self.cell_name} from netlist.')
+
 
         # For LPE netlist, do not parse given netlist, just return directly
         # This will be used in the get subckt function
@@ -192,6 +200,66 @@ class Cell:
 
     def __repr__(self) -> str:
         return f"Cell {self.instance_name}, type {self.cell_name}\n"
+
+
+    def parse_spice(self, file, **kwargs):
+        # Dictionary of known spice components
+        prefix_map = {
+            'C': {
+                'name': 'capacitor',
+                'parameter': 'c'
+            },
+            'R': {
+                'name': 'resistor',
+                'parameter': 'r'
+            },
+            'L': {
+                'name': 'inductor',
+                'parameter': 'l'
+            },
+        }
+
+        # Clean file by removing new line characters
+        with open(file, "r") as raw_f:
+            string_clean_lines = ""
+            for line in raw_f.readlines():
+                clean_line = line.rstrip().lstrip()
+                if(clean_line.endswith('\\')):
+                    clean_line = clean_line.rstrip('\\')
+                else:
+                    clean_line += '\n'
+                string_clean_lines += clean_line
+
+        for line in string_clean_lines.splitlines():
+            if line.startswith('*'): # Ignore comments
+                continue
+
+            # everything is separated by space. Find elements on line
+            content = line.split(' ')
+            if content[0].lower() == '.subckt':
+                # self.cell_name = content[1]
+                # The rest is terminals
+                for terminal in content[2:]:
+                    t = self.add_terminal(terminal)
+                    # Add terminal ass attribute
+                    setattr(self, t.name, t)
+
+            # Check if this is a known component
+            instance_name = content[0]
+            prefix = instance_name[0]
+            known_prefix_list = list(prefix_map.keys())
+            if prefix in known_prefix_list:
+                cell_name = prefix_map[prefix]['name']
+                p_name = prefix_map[prefix]['parameter']
+                t1 = content[1]
+                t2 = content[2]
+                val = content[3]
+                # Instantiate
+                cell = Cell(cell_name, instance_name, self, declare=False)
+                cell.add_terminal(t1)
+                cell.add_terminal(t2)
+                cell.add_parameters({p_name: val})
+                cell.quick_connect([t1, t2], [t1, t2])
 
 
     def extract_data_from_file(self, file, **kwargs):

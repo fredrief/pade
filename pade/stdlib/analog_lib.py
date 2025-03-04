@@ -3,6 +3,13 @@ from pade.utils import num2string
 from shlib import to_path
 import os
 
+class CellPN(Cell):
+    """
+    A Cell with two terminals p and n
+    """
+    def pn(self, t1, t2):
+        self.quick_connect(['p', 'n'], [t1, t2])
+
 class switch(Cell):
     """
     Switch
@@ -64,7 +71,6 @@ class transformer(Cell):
         # Add parameters
         self.set_parameter('n1', n1)
 
-
 class ideal_balun(Cell):
     """
     Ideal Balun
@@ -82,8 +88,7 @@ class ideal_balun(Cell):
         k0 = transformer('K0', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'p', 'c'])
         k1 = transformer('K1', self, 2).quick_connect(['pp', 'pn', 'sp', 'sn'], ['d', '0', 'c', 'n'])
 
-
-class res(Cell):
+class res(CellPN):
     """
     Resistor
     Terminals: p, n
@@ -97,7 +102,7 @@ class res(Cell):
         # Add properties
         self.add_parameters({'r': R})
 
-class cap(Cell):
+class cap(CellPN):
     """
     Capacitor
     terminals: p, n
@@ -111,7 +116,7 @@ class cap(Cell):
         # Add properties
         self.add_parameters({'c': num2string(C)})
 
-class inductor(Cell):
+class inductor(CellPN):
     """
     Capacitor
     terminals: p, n
@@ -125,7 +130,7 @@ class inductor(Cell):
         # Add properties
         self.add_parameters({'l': num2string(L)})
 
-class idc(Cell):
+class idc(CellPN):
     """
     DC Current source
     Terminals: p, n
@@ -141,7 +146,7 @@ class idc(Cell):
         for key in kwargs:
             self.set_parameter(key, kwargs[key])
 
-class vsin(Cell):
+class vsin(CellPN):
     """
     Sine voltage source
     Terminals: p, n
@@ -157,7 +162,7 @@ class vsin(Cell):
         for key in kwargs:
             self.set_parameter(key, kwargs[key])
 
-class vbit(Cell):
+class vbit(CellPN):
     """
     Digital bit stream
     Terminals: p, n
@@ -173,7 +178,7 @@ class vbit(Cell):
         for key in kwargs:
             self.set_parameter(key, kwargs[key])
 
-class isin(Cell):
+class isin(CellPN):
     """
     AC Current source
     Terminals: p, n
@@ -190,23 +195,23 @@ class isin(Cell):
             self.set_parameter(key, kwargs[key])
 
 
-class ipulse(Cell):
+class ipulse(CellPN):
     """
     Current pulse source
     Terminals: p, n
     """
-    def __init__(self, instance_name, parent_cell, i1, i2, per, parameters={}):
+    def __init__(self, instance_name, parent_cell, i1, i2, period, **kwargs):
         # Call super init
         super().__init__('isource', instance_name, parent_cell, declare=False, library_name="analog_lib")
         # Add terminals
         self.p = self.add_terminal("p")
         self.n = self.add_terminal("n")
         # Add properties
-        self.add_parameters({'val0': num2string(i1), 'val1': num2string(i2), 'period': num2string(per), 'type': 'pulse'})
-        for p in parameters:
-            self.set_parameter(p, parameters[p])
+        self.add_parameters({'val0': num2string(i1), 'val1': num2string(i2), 'period': num2string(period), 'type': 'pulse'})
+        for p in kwargs:
+            self.set_parameter(p, kwargs[p])
 
-class vdc(Cell):
+class vdc(CellPN):
     """
     DC Voltage source
     Terminals: p, n
@@ -255,7 +260,7 @@ class vcvs(Cell):
         # Add properties
         self.add_parameters({'gain': num2string(gain)})
 
-class vpulse(Cell):
+class vpulse(CellPN):
     """
     DC Voltage source
     Terminals: p, n
@@ -279,7 +284,7 @@ class vpulse(Cell):
             self.set_parameter('width', num2string(width))
 
 
-class vpwl(Cell):
+class vpwl(CellPN):
     """
     Arguments:
         wave: List
@@ -303,7 +308,7 @@ class vpwl(Cell):
 
 
 
-class bsource(Cell):
+class bsource(CellPN):
     """
     Behavioral Source Use Model
     Terminals: 'p', 'n'
