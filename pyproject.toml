@@ -4,27 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pade"
-version = "0.0.1"
+version = "1.0.0-dev"
 authors = [
   { name="Fredrik Feyling", email="fredrik.feyling@hotmail.com" },
 ]
 description = "Python based Analog Design Environment"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
 ]
 dependencies = [
-    'inform',
-    'matplotlib',
     'numpy',
-    'psf-utils',
     'scipy',
-    'shlib',
-    'pint',
-    'click',
+]
+
+[project.optional-dependencies]
+dev = [
+    'matplotlib',
     'pandas',
-    'pyyaml',
-    'mpire'
+    'psf-utils',  # For parsing Spectre results
+    'ltspice',    # For parsing NGspice/SPICE raw files
+    'bokeh',
 ]
