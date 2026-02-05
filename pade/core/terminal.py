@@ -17,7 +17,6 @@ class Terminal:
         name: Terminal name (e.g., 'drain', 'gate', 'vdd')
         cell: Cell that owns this terminal
         net: Net that this terminal is connected to (None if unconnected)
-        index: Position in cell's terminal list (for netlist ordering)
     """
 
     def __init__(self, name: str, cell: 'Cell') -> None:
@@ -31,7 +30,6 @@ class Terminal:
         self.name = name
         self.cell = cell
         self.net: Optional['Net'] = None
-        self.index = len(cell.terminals) + 1
 
     def __str__(self) -> str:
         net_name = self.net.name if self.net else "None"

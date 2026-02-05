@@ -79,10 +79,6 @@ class Cell:
             return terminals[name]
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
-    # ========================================
-    # Terminal Methods
-    # ========================================
-
     def add_terminal(self, names: Union[str, list[str]]) -> Union[Terminal, list[Terminal]]:
         """
         Add terminal(s) to this cell.
@@ -125,21 +121,9 @@ class Cell:
             raise ValueError(f'No terminal named {name} in cell {self.get_name_from_top()}')
         return self.terminals[name]
 
-    def get_all_terminals(self, sort: bool = False) -> list[Terminal]:
-        """
-        Return list of all terminals.
-
-        Args:
-            sort: If True, sort by index (for netlist ordering)
-        """
-        terminals = list(self.terminals.values())
-        if sort:
-            return sorted(terminals, key=lambda t: t.index)
-        return terminals
-
-    # ========================================
-    # Net Methods
-    # ========================================
+    def get_all_terminals(self) -> list[Terminal]:
+        """Return list of all terminals in definition order."""
+        return list(self.terminals.values())
 
     def add_net(self, names: Union[Net, str, list[str]]) -> Union[Net, list[Net]]:
         """
@@ -186,10 +170,6 @@ class Cell:
     def get_all_nets(self) -> list[Net]:
         """Return list of all nets."""
         return list(self.nets.values())
-
-    # ========================================
-    # Connection Methods
-    # ========================================
 
     def connect(self,
                 terminals: Union[str, Terminal, list[Union[str, Terminal]]],
@@ -300,10 +280,6 @@ class Cell:
         if term2.net != net_obj:
             term2.connect(net_obj)
 
-    # ========================================
-    # Subcell Methods
-    # ========================================
-
     def add_cell(self,
                  cell_class: type['Cell'],
                  instance_name: str,
@@ -347,10 +323,6 @@ class Cell:
         if self.parent_cell:
             self.parent_cell._remove_subcell(self)
 
-    # ========================================
-    # Parameter Methods
-    # ========================================
-
     def set_parameter(self,
                       names: Union[str, list[str]],
                       values: Union[Any, list[Any]],
@@ -389,10 +361,6 @@ class Cell:
         if name not in self.parameters:
             raise ValueError(f'No parameter named {name} in cell {self.get_name_from_top()}')
         return self.parameters[name].value
-
-    # ========================================
-    # Utility Methods
-    # ========================================
 
     def get_name_from_top(self) -> str:
         """

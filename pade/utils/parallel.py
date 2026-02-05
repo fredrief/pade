@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from pade.core import Cell
+    from pade.core.cell import Cell
     from pade.statement import Statement
     from pade.backends.base import Simulator
 

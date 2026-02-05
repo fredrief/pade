@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from pade.backends.base import Simulator
 from pade.backends.spectre.netlist_writer import SpectreNetlistWriter
-from pade.core import Cell
+from pade.core.cell import Cell
 from pade.statement import Statement
 from pade.logging import logger
 
@@ -64,17 +64,17 @@ class SpectreSimulator(Simulator):
             show_output: Show live output from spectre
 
         Returns:
-            Path to raw output directory
+            Path to raw output directory (contains per-analysis PSF files)
         """
         sim_dir = self.output_dir / identifier
         sim_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate netlist
-        netlist_path = sim_dir / f'{cell.cell_name}.scs'
-        self.writer.write_netlist(cell, netlist_path, statements)
+        netlist_path = self.writer.write_netlist(cell, sim_dir, statements)
         logger.info(f'Netlist written to {netlist_path}')
 
         # Run simulation
+        # Note: Spectre creates multiple files in raw_dir (one per analysis)
         raw_dir = sim_dir / 'raw'
         stdout_file = sim_dir / 'spectre.out'
         success = self.run(netlist_path, raw_dir, stdout_file=stdout_file,

@@ -5,7 +5,8 @@ Circuit manipulation utilities.
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pade.core import Cell, Terminal
+    from pade.core.cell import Cell
+    from pade.core.terminal import Terminal
 
 
 def insert_between(cell: 'Cell',
@@ -27,7 +28,7 @@ def insert_between(cell: 'Cell',
         cell_term_1: Terminal of cell to connect to term_a's net
         cell_term_2: Terminal of cell to connect to term_b's net
     """
-    from pade.core import Net
+    from pade.core.net import Net
     
     # Verify that term_a and term_b are both connected to the same net
     if term_a.net is None or term_b.net is None:
@@ -60,6 +61,3 @@ def insert_between(cell: 'Cell',
     for t in pending_terminals:
         t.disconnect()
         t.connect(net1)
-
-
-# Additional utilities can be added here as needed

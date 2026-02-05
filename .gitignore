@@ -141,3 +141,13 @@ cython_debug/
 sim_data/
 .hidden/
 pade/legacy/
+
+# Work directories (intermediate files from DRC/LVS/PEX)
+work/
+examples/work/
+examples/layout/
+examples/pex/
+examples/sim_data/
+
+# Cursor IDE
+.cursor/

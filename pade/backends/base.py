@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pade.core import Cell
+    from pade.core.cell import Cell
     from pade.statement import Statement
+    from pade.layout.cell import LayoutCell
 
 
 class NetlistReader(ABC):
@@ -65,6 +66,37 @@ class NetlistWriter(ABC):
     def generate_netlist(self, cell: 'Cell',
                          statements: list['Statement'] | None = None) -> str:
         """Generate netlist string."""
+        pass
+
+
+class LayoutWriter(ABC):
+    """
+    Abstract base class for layout generation.
+
+    Each backend implements this to write layout to its specific
+    format (Magic .mag, GDSII, etc.).
+    """
+
+    @abstractmethod
+    def write(self, cell: 'LayoutCell', path: str | Path) -> None:
+        """
+        Write layout cell to file.
+
+        Args:
+            cell: Top-level LayoutCell
+            path: Output file path
+        """
+        pass
+
+    @abstractmethod
+    def write_hierarchy(self, cell: 'LayoutCell', output_dir: str | Path) -> None:
+        """
+        Write cell and all subcells to separate files.
+
+        Args:
+            cell: Top-level LayoutCell
+            output_dir: Directory for output files
+        """
         pass
 
 

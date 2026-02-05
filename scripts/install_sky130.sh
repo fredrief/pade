@@ -66,19 +66,30 @@ command -v xschem &> /dev/null && echo "  ✓ xschem installed" || echo "  ✗ x
 echo ""
 echo "Step 2: Installing ciel (PDK manager)..."
 echo "-----------------------------------------"
-pip install --user ciel
 
-# Add ~/.local/bin to PATH if not already
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-    export PATH="$HOME/.local/bin:$PATH"
-    echo "Added ~/.local/bin to PATH"
+if [[ "$PKG_MANAGER" == "brew" ]]; then
+    # macOS: use pipx (PEP 668 compliant)
+    if ! command -v pipx &> /dev/null; then
+        echo "Installing pipx..."
+        brew install pipx
+        pipx ensurepath
+    fi
+    pipx install ciel || pipx upgrade ciel
+else
+    # Linux: use pip --user
+    python3 -m pip install --user ciel
+    # Add ~/.local/bin to PATH if not already
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+        export PATH="$HOME/.local/bin:$PATH"
+        echo "Added ~/.local/bin to PATH"
+    fi
 fi
 
 # Verify ciel
 command -v ciel &> /dev/null && echo "  ✓ ciel installed" || {
     echo "  ✗ ciel NOT found in PATH"
-    echo "  Try: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "  You may need to open a new terminal or run: eval \"\$(pipx ensurepath)\""
     exit 1
 }
 
@@ -132,6 +143,18 @@ if [[ -f "$PDK_ROOT/sky130A/libs.tech/ngspice/sky130.lib.spice" ]]; then
     echo "  ✓ NGspice models found"
 else
     echo "  ✗ NGspice models NOT found"
+fi
+
+# Copy spinit for NGspice compatibility
+echo ""
+echo "Step 6: Configuring NGspice..."
+echo "------------------------------"
+SPINIT_SRC="$PDK_ROOT/sky130A/libs.tech/ngspice/spinit"
+if [[ -f "$SPINIT_SRC" ]]; then
+    cp "$SPINIT_SRC" ~/.spiceinit
+    echo "  ✓ Copied spinit to ~/.spiceinit (enables SKY130 compatibility)"
+else
+    echo "  ⚠ spinit not found - you may need to configure ~/.spiceinit manually"
 fi
 
 echo ""

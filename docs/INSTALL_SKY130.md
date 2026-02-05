@@ -2,6 +2,22 @@
 
 This guide covers installing the SKY130 open-source PDK and associated tools for use with PADE.
 
+## Using an Existing Installation
+
+If you already have SKY130 installed, just set the environment variables:
+
+```bash
+export PDK_ROOT=/path/to/your/pdk   # e.g., /opt/pdk, ~/open_pdks/sky130
+export PDK=sky130A                   # optional, default is sky130A
+```
+
+Add these to your `~/.bashrc` or `~/.zshrc` to persist.
+
+Also ensure NGspice compatibility by copying the spinit file:
+```bash
+cp $PDK_ROOT/$PDK/libs.tech/ngspice/spinit ~/.spiceinit
+```
+
 ## Quick Install (Linux)
 
 ```bash
@@ -67,6 +83,15 @@ Then reload:
 source ~/.bashrc
 ```
 
+### 5. Configure NGspice for SKY130
+
+Copy the SKY130 spinit file to enable compatibility mode:
+```bash
+cp ~/.ciel/sky130A/libs.tech/ngspice/spinit ~/.spiceinit
+```
+
+This sets `ngbehavior=hsa` and `scale=1e-6` which are required for SKY130 models.
+
 ## Verify Installation
 
 ```bash
@@ -100,11 +125,27 @@ After installation:
 ## Using with PADE
 
 ```python
-from pade.examples.pdk.sky130 import nfet_01v8, pfet_01v8
+import sys
+import os
+sys.path.insert(0, '.')  # Run from examples/ directory
 
-# Create inverter
-mn = nfet_01v8('MN', parent=tb, w='1u', l='150n')
-mp = pfet_01v8('MP', parent=tb, w='2u', l='150n')
+from pade.statement import Analysis, Save, Statement
+from pdk.sky130 import nfet_01v8, pfet_01v8
+
+# PDK configuration
+PDK_ROOT = os.environ.get('PDK_ROOT', os.path.expanduser('~/.ciel'))
+SKY130_MODELS = f"{PDK_ROOT}/sky130A/libs.tech/ngspice/sky130.lib.spice"
+
+# Create inverter (dimensions in um with scale=1e-6)
+mn = nfet_01v8('MN', parent=tb, w=1, l=0.15)    # 1um wide, 150nm long
+mp = pfet_01v8('MP', parent=tb, w=2, l=0.15)    # 2um wide, 150nm long
+
+# Simulation statements
+statements = [
+    Statement(raw=f'.lib "{SKY130_MODELS}" tt'),  # SKY130 typical corner
+    Analysis('tran', stop='50n'),
+    Save(['inp', 'out']),
+]
 ```
 
 ## Troubleshooting

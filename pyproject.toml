@@ -19,6 +19,8 @@ classifiers = [
 dependencies = [
     'numpy',
     'scipy',
+    'shapely>=2.0',
+    'gdstk>=0.9',
 ]
 
 [project.optional-dependencies]

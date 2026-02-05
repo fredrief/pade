@@ -2,7 +2,7 @@
 RC lowpass filter testbench.
 """
 
-from pade import Testbench
+from pade.core.testbench import Testbench
 from pade.stdlib import V, R, C
 
 

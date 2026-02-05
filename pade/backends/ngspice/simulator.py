@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from pade.backends.base import Simulator
 from pade.backends.ngspice.netlist_writer import SpiceNetlistWriter
-from pade.core import Cell
+from pade.core.cell import Cell
 from pade.statement import Statement
 from pade.logging import logger
 
@@ -53,32 +53,30 @@ class NgspiceSimulator(Simulator):
             show_output: Show live output from ngspice
 
         Returns:
-            Path to raw output directory
+            Path to raw output file
         """
         sim_dir = self.output_dir / identifier
         sim_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate netlist
-        netlist_path = sim_dir / f'{cell.cell_name}.spice'
-        self.writer.write_netlist(cell, netlist_path, statements)
+        netlist_path = self.writer.write_netlist(cell, sim_dir, statements)
         logger.info(f'Netlist written to {netlist_path}')
 
         # Run simulation
-        raw_dir = sim_dir / 'raw'
-        raw_dir.mkdir(parents=True, exist_ok=True)
+        raw_file = sim_dir / 'output.raw'
         stdout_file = sim_dir / 'ngspice.out'
 
-        success = self.run(netlist_path, raw_dir, stdout_file=stdout_file,
+        success = self.run(netlist_path, raw_file, stdout_file=stdout_file,
                           extra_options=extra_options, show_output=show_output)
 
         if success:
-            return raw_dir
+            return raw_file
         else:
             raise RuntimeError('NGspice simulation failed')
 
     def run(self,
             netlist_path: Union[str, Path],
-            output_dir: Union[str, Path],
+            raw_file: Union[str, Path],
             stdout_file: Union[str, Optional[Path]] = None,
             extra_options: Optional[list[str]] = None,
             show_output: bool = True) -> bool:
@@ -87,7 +85,7 @@ class NgspiceSimulator(Simulator):
 
         Args:
             netlist_path: Path to netlist file
-            output_dir: Directory for raw output
+            raw_file: Path to raw output file
             stdout_file: File to write stdout
             extra_options: Additional CLI options
             show_output: Show live output
@@ -96,10 +94,8 @@ class NgspiceSimulator(Simulator):
             True if successful
         """
         netlist_path = Path(netlist_path)
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        raw_file = output_dir / 'output.raw'
+        raw_file = Path(raw_file)
+        raw_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Build ngspice command
         # -b: batch mode

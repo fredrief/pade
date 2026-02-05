@@ -7,13 +7,17 @@ pade/
 ├── stdlib/        # VoltageSource, CurrentSource, Resistor, Capacitor
 ├── statement/     # Analysis, Options, Save, Include, IC
 ├── backends/
-│   ├── base.py    # Abstract: NetlistWriter, Simulator, NetlistReader
+│   ├── base.py    # Abstract: NetlistWriter, Simulator, NetlistReader, LayoutWriter
 │   ├── spectre/   # Spectre implementation
-│   └── ngspice/   # NGspice implementation
+│   ├── ngspice/   # NGspice implementation
+│   └── magic/     # Magic layout implementation (Phase 7)
 ├── utils/         # parallel, circuit utilities
-├── examples/      # Example testbenches
-├── pdk/           # PDK support (SKY130)
-└── legacy/        # Old code for reference
+└── logging.py     # Logging utilities
+
+examples/
+├── pdk/sky130/    # SKY130 device wrappers
+├── testbenches/   # Example testbenches
+└── *.ipynb        # Notebook examples
 ```
 
 ## Completed
@@ -42,23 +46,36 @@ pade/
 - `load_subckt()` function and `NetlistCell` class
 - GF130 inverter example: `examples/03_inverter_gf130.ipynb`
 
+### Phase 6: SKY130 PDK Integration ✓
+1. SKY130 PDK setup and installation script (`scripts/install_sky130.sh`)
+2. `backends/ngspice/netlist_reader.py` - Parse SPICE subcircuits
+3. Device wrappers as SPICE files (`examples/pdk/sky130/*.spice`)
+4. SKY130 inverter example: `examples/03_inverter_sky130.ipynb`
+5. Documentation: `docs/INSTALL_SKY130.md`
+
 ---
 
-## Current Focus: Open Source Flow (SKY130 + NGspice + Magic)
+## Current Focus: Layout with Magic
 
-### Phase 6: SKY130 PDK Integration
-1. SKY130 PDK setup and installation docs
-2. `backends/ngspice/netlist_reader.py` - Parse SPICE subcircuits
-3. `pdk/sky130/` - Device wrappers (nfet, pfet, etc.)
-4. SKY130 inverter example: `examples/04_inverter_sky130.ipynb`
+### Phase 7: Core Layout + DRC
+1. `backends/base.py` - Abstract LayoutWriter class
+2. `backends/magic/layout_writer.py` - Magic TCL script generation
+3. Basic layout primitives (rectangles, labels, ports)
+4. Cell hierarchy support
+5. DRC check integration
+6. SKY130 layout example
 
-### Phase 7: Layout with Magic
-1. Magic integration for layout generation
-2. Layout-vs-Schematic (LVS) flow
-3. Parasitic extraction (PEX)
-4. Post-layout simulation
+### Phase 8: LVS + PEX + Post-Layout Simulation
+1. Layout-vs-Schematic (LVS) with netgen
+2. Parasitic extraction (PEX) with Magic
+3. Post-layout simulation flow
+4. Back-annotated netlist handling
 
-### Phase 8: Factory + API
+---
+
+## Future Phases
+
+### Phase 9: Factory + API
 1. Backend factory function
    - `pade.get_simulator('ngspice', ...)` → NgspiceSimulator
    - Auto-detect available backends
@@ -68,7 +85,7 @@ pade/
    - Environment variable support
 4. Error handling
 
-### Phase 9: Documentation
+### Phase 10: Documentation & Polish
 1. README.md - Quick start with SKY130
 2. Installation guide (NGspice + SKY130 + Magic)
 3. API documentation
@@ -76,16 +93,17 @@ pade/
    - Basic simulation (RC filter)
    - SKY130 inverter
    - Layout flow with Magic
+5. Polish `__init__.py` exports for clean public API
 
 ---
 
 ## Future: Cadence/Spectre Flow
 
-### Phase 10: Layout (Cadence/Virtuoso)
+### Phase 11: Layout (Cadence/Virtuoso)
 1. Skillbridge integration
 2. Layout compilation flow
 
-### Phase 11: Full Cadence Integration
+### Phase 12: Full Cadence Integration
 1. Spectre advanced features
 2. Corner/Monte Carlo simulations
 3. Virtuoso schematic integration

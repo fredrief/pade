@@ -4,7 +4,7 @@ Spectre netlist writer.
 
 from pathlib import Path
 from pade.backends.base import NetlistWriter
-from pade.core import Cell
+from pade.core.cell import Cell
 from pade.statement import Statement, Analysis, Options, Save, Include, IC
 
 
@@ -30,13 +30,24 @@ class SpectreNetlistWriter(NetlistWriter):
     def __init__(self, global_nets: str = '0'):
         self.global_nets = global_nets
 
-    def write_netlist(self, cell: Cell, path: str | Path,
-                      statements: list[Statement] | None = None) -> None:
-        """Write netlist to file."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+    def write_netlist(self, cell: Cell, output_dir: str | Path,
+                      statements: list[Statement] | None = None) -> Path:
+        """Write netlist to file.
+        
+        Args:
+            cell: Cell to write netlist for
+            output_dir: Directory to write to
+            statements: Optional list of statements
+            
+        Returns:
+            Path to the written netlist file
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f'{cell.cell_name}.scs'
         with open(path, 'w') as f:
             f.write(self.generate_netlist(cell, statements))
+        return path
 
     def generate_netlist(self, cell: Cell,
                          statements: list[Statement] | None = None) -> str:
@@ -103,7 +114,6 @@ class SpectreNetlistWriter(NetlistWriter):
 
     def _inline_subckt_file(self, path: str) -> str:
         """Read and return subcircuit file content for inlining."""
-        from pathlib import Path
         content = Path(path).read_text()
         # Strip any existing simulator lang declarations (we already have one)
         lines = []
@@ -196,7 +206,7 @@ class SpectreNetlistWriter(NetlistWriter):
         """Format subcircuit definition."""
         lines = []
 
-        terminals = ' '.join(t.name for t in cell.get_all_terminals(sort=True))
+        terminals = ' '.join(t.name for t in cell.get_all_terminals())
         lines.append(f'subckt {cell.cell_name} {terminals}')
 
         if cell.parameters:
@@ -222,7 +232,7 @@ class SpectreNetlistWriter(NetlistWriter):
 
         parts = [cell.instance_name]
 
-        for t in cell.get_all_terminals(sort=True):
+        for t in cell.get_all_terminals():
             parts.append(t.net.name)
 
         # Map primitives to Spectre names, otherwise use cell_name

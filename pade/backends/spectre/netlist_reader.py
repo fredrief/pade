@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Optional
 
 from pade.backends.base import NetlistReader
-from pade.core import Cell, Parameter
+from pade.core.cell import Cell
+from pade.core.parameter import Parameter
 
 
 class NetlistCell(Cell):
@@ -40,7 +41,7 @@ class NetlistCell(Cell):
                  parent: Optional[Cell] = None,
                  cell_name: Optional[str] = None,
                  source_path: Optional[str | Path] = None,
-                 terminals: Optional[list[str]] = None,
+                 terminals: list[str] = None,
                  parameters: Optional[dict[str, Parameter]] = None,
                  **kwargs):
         """
@@ -51,16 +52,18 @@ class NetlistCell(Cell):
             parent: Parent cell
             cell_name: Subcircuit name (e.g., 'NCH', 'PCH')
             source_path: Path to source netlist file
-            terminals: List of terminal names
+            terminals: List of terminal names (required)
             parameters: Dict of parameters with defaults
             **kwargs: Parameter values to override defaults
         """
+        if terminals is None:
+            raise ValueError("NetlistCell requires terminals")
+
         super().__init__(instance_name, parent, cell_name=cell_name)
         self.source_path = Path(source_path) if source_path else None
 
-        # Add terminals
-        if terminals:
-            self.add_terminal(terminals)
+        # Add terminals (required)
+        self.add_terminal(terminals)
 
         # Set parameters with defaults, allow overrides via kwargs
         if parameters:
