@@ -1,0 +1,78 @@
+"""
+Route class for drawing connected path segments.
+"""
+
+from typing import List, Tuple, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pade.layout.cell import LayoutCell
+    from pade.layout.shape import Layer
+
+
+class Route:
+    """
+    A route consisting of connected path segments.
+    
+    Routes are defined by a list of waypoints. Segments are drawn between
+    consecutive waypoints, with proper corner handling.
+    """
+    
+    def __init__(self, points: List[Tuple[int, int]], layer: 'Layer',
+                 width: int, net: Optional[str] = None):
+        """
+        Create a route.
+        
+        Args:
+            points: List of (x, y) waypoints in nm. Minimum 2 points.
+            layer: Layer for all segments
+            width: Segment width in nm
+            net: Optional net name for connectivity
+        """
+        if len(points) < 2:
+            raise ValueError("Route requires at least 2 points")
+        
+        self.points = points
+        self.layer = layer
+        self.width = width
+        self.net = net
+    
+    def draw(self, cell: 'LayoutCell') -> 'Route':
+        """
+        Draw route segments into cell.
+        
+        Returns self for chaining.
+        """
+        hw = self.width // 2  # half width
+        
+        for i in range(len(self.points) - 1):
+            x0, y0 = self.points[i]
+            x1, y1 = self.points[i + 1]
+            
+            # Determine segment orientation
+            if y0 == y1:
+                # Horizontal segment
+                left = min(x0, x1)
+                right = max(x0, x1)
+                cell.add_rect(self.layer, left, y0 - hw, right, y0 + hw, net=self.net)
+            elif x0 == x1:
+                # Vertical segment
+                bottom = min(y0, y1)
+                top = max(y0, y1)
+                cell.add_rect(self.layer, x0 - hw, bottom, x0 + hw, top, net=self.net)
+            else:
+                raise ValueError(f"Diagonal segments not supported: ({x0},{y0}) to ({x1},{y1})")
+        
+        return self
+    
+    @property
+    def length(self) -> int:
+        """Total route length in nm."""
+        total = 0
+        for i in range(len(self.points) - 1):
+            x0, y0 = self.points[i]
+            x1, y1 = self.points[i + 1]
+            total += abs(x1 - x0) + abs(y1 - y0)
+        return total
+    
+    def __repr__(self):
+        return f"Route({len(self.points)} points, layer={self.layer.name}, width={self.width})"

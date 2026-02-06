@@ -3,6 +3,6 @@
 * Dimensions in um (with NGspice scale=1e-6)
 
 .subckt pfet_01v8 d g s b
-.param w=1 l=0.15 nf=1 mult=1
-XM d g s b sky130_fd_pr__pfet_01v8 w={w} l={l} nf={nf} mult={mult}
+.param w=1 l=0.15 nf=1
+XM d g s b sky130_fd_pr__pfet_01v8 w={w} l={l} nf={nf} mult=1
 .ends pfet_01v8

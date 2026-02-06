@@ -104,23 +104,16 @@ class LVS:
     def _write_schematic_netlist(self, cell: 'Cell', path: Path) -> None:
         """Generate schematic netlist from Cell.
 
-        If the cell is a NetlistCell (loaded from external SPICE file),
-        the original file is copied. Otherwise, a new netlist is generated.
+        Always generates netlist using the writer to ensure cell name
+        matches layout (uses layout's encoded cell_name when attached).
         """
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Check if this is a NetlistCell (has source_path attribute)
-        if hasattr(cell, 'source_path') and cell.source_path is not None:
-            # Copy the original SPICE file
-            import shutil
-            shutil.copy(cell.source_path, path)
-        else:
-            # Generate netlist from Cell
-            from pade.backends.ngspice.netlist_writer import SpiceNetlistWriter
-            writer = SpiceNetlistWriter()
-            netlist = writer.generate_subcircuit(cell)
-            with open(path, 'w') as f:
-                f.write(netlist)
+        from pade.backends.ngspice.netlist_writer import SpiceNetlistWriter
+        writer = SpiceNetlistWriter()
+        netlist = writer.generate_subcircuit(cell)
+        with open(path, 'w') as f:
+            f.write(netlist)
 
     def _extract_layout(self, cell_name: str, gds_file: Path,
                         output_spice: Path, work_dir: Path) -> None:

@@ -2,7 +2,7 @@
 
 from pade.core.testbench import Testbench
 from pade.stdlib import V
-from pdk.sky130 import Nfet01v8, Pfet01v8
+from pdk.sky130.primitives.transistors.schematic import Nfet01v8, Pfet01v8
 
 
 class InverterSky130TB(Testbench):

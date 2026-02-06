@@ -140,29 +140,27 @@ Just fix them. Mention in your summary. Don't ask permission.
 
 When demonstrating code or creating examples, keep them minimal. Show only what's necessary to illustrate the point.
 
-## Current State
+### Avoid Rabbit Holes
 
-### Working
+- If you get stuck or encounter difficult problems, pause and discuss
+- No hacky solutions or workarounds - if tempted, discuss instead
+- Always maintain good understanding of project structure and interfaces
 
-- Schematic capture with Cell hierarchy
-- NGspice and Spectre simulation
-- Layout with GDS export
-- DRC/LVS/PEX flow with Magic/Netgen
-- SKY130 MiM capacitor complete flow (tutorial 04)
-
-### Placeholder/TODO
-
-- Transistor layout (raises NotImplementedError)
-- More SKY130 primitives
-- Cadence layout flow
-
-### Future Plans
+## Future Plans
 
 - Commercial PDK support (keep core independent!)
 - More complete Cadence/Spectre flow
 - Additional open-source PDKs
 
 ## Quick Reference
+
+### Environment Setup
+
+Activate the virtual environment before running any Python code:
+
+```bash
+source venv/bin/activate
+```
 
 ### Running Tutorials
 

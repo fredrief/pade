@@ -181,21 +181,24 @@ class SpectreNetlistWriter(NetlistWriter):
         """Check if cell is a primitive component."""
         return cell.cell_name in SPECTRE_PRIMITIVES
 
+    def _get_effective_cell_name(self, cell: Cell) -> str:
+        """Get cell name, using layout's encoded name when layout is attached."""
+        if not self._is_primitive(cell) and cell.layout_cell is not None:
+            return cell.layout_cell.cell_name
+        return cell.cell_name
+
     def _get_subckt_definitions(self, cell: Cell) -> list[Cell]:
-        """
-        Get list of cells that need subckt definitions.
-        Primitives and external SubcktCells don't need definitions.
-        """
+        """Get list of cells that need subckt definitions."""
         definitions = []
         seen = set()
 
         def collect(c: Cell) -> None:
             for subcell in c.get_subcells():
-                # Skip primitives and external subcircuits
                 if self._is_primitive(subcell) or _is_netlist_cell(subcell):
                     continue
-                if subcell.subcells and subcell.cell_name not in seen:
-                    seen.add(subcell.cell_name)
+                eff_name = self._get_effective_cell_name(subcell)
+                if subcell.subcells and eff_name not in seen:
+                    seen.add(eff_name)
                     collect(subcell)
                     definitions.append(subcell)
 
@@ -205,9 +208,10 @@ class SpectreNetlistWriter(NetlistWriter):
     def _format_subckt(self, cell: Cell) -> str:
         """Format subcircuit definition."""
         lines = []
+        eff_name = self._get_effective_cell_name(cell)
 
         terminals = ' '.join(t.name for t in cell.get_all_terminals())
-        lines.append(f'subckt {cell.cell_name} {terminals}')
+        lines.append(f'subckt {eff_name} {terminals}')
 
         if cell.parameters:
             params = ' '.join(
@@ -219,7 +223,7 @@ class SpectreNetlistWriter(NetlistWriter):
         for subcell in cell.get_subcells():
             lines.append(self._format_instance(subcell))
 
-        lines.append(f'ends {cell.cell_name}')
+        lines.append(f'ends {eff_name}')
         return '\n'.join(lines)
 
     def _format_instance(self, cell: Cell) -> str:
@@ -235,11 +239,11 @@ class SpectreNetlistWriter(NetlistWriter):
         for t in cell.get_all_terminals():
             parts.append(t.net.name)
 
-        # Map primitives to Spectre names, otherwise use cell_name
+        # Map primitives to Spectre names, otherwise use effective cell name
         if self._is_primitive(cell):
             parts.append(SPECTRE_PRIMITIVES[cell.cell_name])
         else:
-            parts.append(cell.cell_name)
+            parts.append(self._get_effective_cell_name(cell))
 
         for name, param in cell.parameters.items():
             parts.append(f'{name}={self._format_value(param.value)}')

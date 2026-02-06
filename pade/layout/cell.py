@@ -2,10 +2,11 @@
 LayoutCell - Base class for hierarchical layout.
 """
 
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from pade.layout.transform import Transform
 from pade.layout.shape import Shape, Layer
 from pade.layout.port import Port
+from pade.layout.route import Route
 
 
 class LayoutCell:
@@ -19,6 +20,8 @@ class LayoutCell:
                  instance_name: str,
                  parent: Optional['LayoutCell'] = None,
                  cell_name: Optional[str] = None,
+                 schematic=None,
+                 layout_params: Optional[dict] = None,
                  **kwargs):
         """
         Create a layout cell.
@@ -26,13 +29,21 @@ class LayoutCell:
         Args:
             instance_name: Instance name (unique within parent)
             parent: Parent cell in hierarchy
-            cell_name: Type name (defaults to class name)
-            **kwargs: Additional parameters stored in self.params
+            cell_name: Base type name (defaults to schematic cell_name or class name)
+            schematic: Schematic Cell instance (bidirectional link)
+            layout_params: Layout-specific parameters encoded into cell_name
+            **kwargs: Config options (forwarded through hierarchy, not encoded)
         """
-        self.cell_name = cell_name or type(self).__name__
+        self.schematic = schematic
+        self.layout_params = layout_params or {}
+        base_name = cell_name or (schematic.cell_name if schematic else None) or type(self).__name__
+        self.cell_name = self._generate_cell_name(base_name)
         self.instance_name = instance_name
         self.parent = parent
-        self.params = kwargs
+
+        # Bidirectional link
+        if schematic is not None:
+            schematic.layout_cell = self
 
         # Transform relative to parent (identity by default)
         self.transform = Transform()
@@ -45,6 +56,44 @@ class LayoutCell:
         # Register with parent
         if parent is not None:
             parent._add_subcell(self)
+
+    def _generate_cell_name(self, base_name: str) -> str:
+        """Generate unique cell name by encoding all parameters.
+
+        Encodes schematic parameters (w, l, nf, ...) and layout-specific
+        parameters (tap, poly_contact, ...) into the name. This ensures
+        unique GDS cell names for each distinct geometry.
+
+        Format: base_W1_L015_NF1_TAP_LEFT
+        """
+        parts = [base_name]
+
+        if self.schematic is not None:
+            for name, param in self.schematic.parameters.items():
+                parts.append(self._encode_param(name, param.value))
+
+        for name, value in self.layout_params.items():
+            if value is not None:
+                parts.append(self._encode_param(name, value))
+
+        if len(parts) == 1:
+            return base_name
+        return '_'.join(parts)
+
+    def _encode_param(self, name: str, value) -> str:
+        """Encode a single parameter as NAMEVALUE string.
+
+        Subclasses can override for custom encoding formats.
+        """
+        name_str = name.upper()
+        if isinstance(value, float):
+            val_str = f'{value:g}'.replace('.', 'p').replace('-', 'm')
+        elif isinstance(value, str):
+            # Handle numeric strings (e.g. '1.0', '0.15' from SPICE)
+            val_str = value.replace('.', 'p').replace('-', 'm').upper()
+        else:
+            val_str = str(value)
+        return f'{name_str}{val_str}'
 
     def __repr__(self):
         return f"LayoutCell({self.instance_name}, type={self.cell_name})"
@@ -117,6 +166,132 @@ class LayoutCell:
         if name not in self.ports:
             raise ValueError(f"No port named '{name}' in {self}")
         return self.ports[name]
+
+    def route(self, start: Union[Tuple[int, int], Port, str],
+              end: Union[Tuple[int, int], Port, str],
+              layer: Layer, width: int,
+              how: str = '-|',
+              jog_start: int = 0,
+              jog_end: int = 0,
+              net: Optional[str] = None) -> Route:
+        """
+        Create and draw a route between two points.
+        
+        Args:
+            start: Starting point - (x, y) tuple, Port, or port name string
+            end: Ending point - (x, y) tuple, Port, or port name string
+            layer: Layer for the route
+            width: Route width in nm
+            how: Route pattern:
+                 '-'  : straight line (points must be aligned)
+                 '-|' : horizontal first, then vertical
+                 '|-' : vertical first, then horizontal
+            jog_start: Perpendicular offset at start (nm). Sign determines direction.
+            jog_end: Perpendicular offset at end (nm). Sign determines direction.
+            net: Net name. Auto-detected from Port if not specified.
+        
+        Returns:
+            The drawn Route object
+        """
+        # Resolve start point
+        x0, y0, net0 = self._resolve_route_point(start)
+        x1, y1, net1 = self._resolve_route_point(end)
+        
+        # Auto-detect net from ports
+        if net is None:
+            net = net0 or net1
+        
+        # Compute waypoints
+        points = self._compute_route_points(x0, y0, x1, y1, how, jog_start, jog_end)
+        
+        # Create and draw route
+        route = Route(points, layer, width, net)
+        route.draw(self)
+        return route
+    
+    def _resolve_route_point(self, point: Union[Tuple[int, int], Port, str]
+                             ) -> Tuple[int, int, Optional[str]]:
+        """
+        Resolve a route point to (x, y, net).
+        
+        Args:
+            point: (x, y) tuple, Port object, or port name string
+        
+        Returns:
+            (x, y, net) where net may be None
+        """
+        if isinstance(point, Port):
+            cx, cy = point.center
+            return cx, cy, point.net
+        if isinstance(point, str):
+            port = self.get_port(point)
+            cx, cy = port.center
+            return cx, cy, port.net
+        # Assume tuple
+        return point[0], point[1], None
+    
+    def _compute_route_points(self, x0: int, y0: int, x1: int, y1: int,
+                              how: str, jog_start: int, jog_end: int
+                              ) -> List[Tuple[int, int]]:
+        """
+        Compute waypoints for a route.
+        
+        Args:
+            x0, y0: Start coordinates
+            x1, y1: End coordinates
+            how: Route pattern ('-', '-|', '|-')
+            jog_start: Perpendicular offset at start
+            jog_end: Perpendicular offset at end
+        
+        Returns:
+            List of (x, y) waypoints
+        """
+        points = [(x0, y0)]
+        
+        # Apply jog_start (perpendicular to first segment direction)
+        if jog_start != 0:
+            if how == '-|' or how == '-':
+                # First segment is horizontal, jog is vertical
+                points.append((x0, y0 + jog_start))
+                x0, y0 = x0, y0 + jog_start
+            elif how == '|-':
+                # First segment is vertical, jog is horizontal
+                points.append((x0 + jog_start, y0))
+                x0, y0 = x0 + jog_start, y0
+        
+        # Apply jog_end (perpendicular to last segment direction)
+        if jog_end != 0:
+            if how == '-|':
+                # Last segment is vertical, jog is horizontal
+                x1 = x1 + jog_end
+            elif how == '|-' or how == '-':
+                # Last segment is horizontal, jog is vertical
+                y1 = y1 + jog_end
+        
+        # Main routing pattern
+        if how == '-':
+            # Straight line - must be aligned
+            if x0 != x1 and y0 != y1:
+                raise ValueError(f"Straight route '-' requires aligned points: ({x0},{y0}) to ({x1},{y1})")
+            points.append((x1, y1))
+        elif how == '-|':
+            # Horizontal first, then vertical
+            points.append((x1, y0))  # Go horizontal to x1
+            points.append((x1, y1))  # Then vertical to y1
+        elif how == '|-':
+            # Vertical first, then horizontal
+            points.append((x0, y1))  # Go vertical to y1
+            points.append((x1, y1))  # Then horizontal to x1
+        else:
+            raise ValueError(f"Unknown route pattern: '{how}'. Use '-', '-|', or '|-'")
+        
+        # Apply jog_end adjustment at final point
+        if jog_end != 0:
+            # Add final segment to reach actual endpoint
+            orig_x1, orig_y1 = self._resolve_route_point((x1, y1))[:2]
+            # Already applied above by modifying x1/y1
+        
+        return points
 
     def _add_subcell(self, cell: 'LayoutCell') -> None:
         """Internal: register a subcell."""

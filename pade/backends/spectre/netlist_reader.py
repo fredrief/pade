@@ -21,19 +21,6 @@ class NetlistCell(Cell):
 
     Attributes:
         source_path: Path to the netlist file containing the subcircuit
-
-    Example:
-        # In components/devices.py
-        from pade.backends.spectre import load_subckt
-
-        NCH = load_subckt('/path/to/NCH.txt')
-        PCH = load_subckt('/path/to/PCH.txt')
-
-        # In testbench
-        from components.devices import NCH, PCH
-
-        mn = NCH('MN', self, wf='1u', l='200n')
-        mn.connect(['D', 'G', 'S', 'B'], ['out', 'inp', '0', '0'])
     """
 
     def __init__(self,
@@ -41,45 +28,14 @@ class NetlistCell(Cell):
                  parent: Optional[Cell] = None,
                  cell_name: Optional[str] = None,
                  source_path: Optional[str | Path] = None,
-                 terminals: list[str] = None,
-                 parameters: Optional[dict[str, Parameter]] = None,
-                 **kwargs):
-        """
-        Create a netlist cell instance.
-
-        Args:
-            instance_name: Instance name (e.g., 'MN', 'MP')
-            parent: Parent cell
-            cell_name: Subcircuit name (e.g., 'NCH', 'PCH')
-            source_path: Path to source netlist file
-            terminals: List of terminal names (required)
-            parameters: Dict of parameters with defaults
-            **kwargs: Parameter values to override defaults
-        """
+                 terminals: list[str] = None):
         if terminals is None:
             raise ValueError("NetlistCell requires terminals")
 
         super().__init__(instance_name, parent, cell_name=cell_name)
         self.source_path = Path(source_path) if source_path else None
 
-        # Add terminals (required)
         self.add_terminal(terminals)
-
-        # Set parameters with defaults, allow overrides via kwargs
-        if parameters:
-            for name, param in parameters.items():
-                if name in kwargs:
-                    # User provided override
-                    self.set_parameter(name, kwargs[name], default=param.default)
-                else:
-                    # Use default value
-                    self.set_parameter(name, param.value, default=param.default)
-
-    @classmethod
-    def info(cls) -> str:
-        """Return info string showing terminals and parameters."""
-        # This will be overridden by the factory function
-        return f"{cls.__name__}()"
 
 
 def _make_netlist_cell_class(subckt_name: str,
@@ -97,25 +53,25 @@ def _make_netlist_cell_class(subckt_name: str,
                      parent: Optional[Cell] = None,
                      **kwargs):
             super().__init__(
-                instance_name,
-                parent,
+                instance_name, parent,
                 cell_name=subckt_name,
                 source_path=source_path,
                 terminals=terminal_names,
-                parameters=param_defaults,
-                **kwargs
             )
+            for name, param in param_defaults.items():
+                if name in kwargs:
+                    self.set_parameter(name, kwargs[name], default=param.default)
+                else:
+                    self.set_parameter(name, param.value, default=param.default)
 
         @classmethod
         def info(cls) -> str:
-            """Return info string showing terminals and parameters."""
             terms = ', '.join(terminal_names)
             params = ', '.join(f'{n}={p.default}' for n, p in param_defaults.items())
             return f"{subckt_name}({terms}) parameters: {params}"
 
     _NetlistCell.__name__ = subckt_name
     _NetlistCell.__qualname__ = subckt_name
-    _NetlistCell.__doc__ = f"NetlistCell for {subckt_name} from {source_path}"
     return _NetlistCell
 
 

@@ -48,6 +48,7 @@ class Cell:
         self.parent_cell = parent
         self.library = library
         self.config = kwargs
+        self.layout_cell = None
 
         # Data structures
         self.terminals: dict[str, Terminal] = {}
@@ -323,30 +324,21 @@ class Cell:
         if self.parent_cell:
             self.parent_cell._remove_subcell(self)
 
-    def set_parameter(self,
-                      names: Union[str, list[str]],
-                      values: Union[Any, list[Any]],
-                      **kwargs) -> None:
+    def set_parameter(self, name: str, value: Any,
+                      default: Any = None, unit: Optional[str] = None) -> None:
         """
-        Set parameter(s).
+        Set a single parameter.
 
         Args:
-            names: Parameter name or list of names
-            values: Parameter value or list of values
-            **kwargs: Additional parameter options (default, unit) - applied to all
+            name: Parameter name
+            value: Parameter value
+            default: Default value (for subcircuit definitions)
+            unit: Optional unit string
         """
-        if not isinstance(names, list):
-            names = [names]
-            values = [values]
-
-        if len(names) != len(values):
-            raise ValueError(f'Number of names ({len(names)}) != values ({len(values)})')
-
-        for name, value in zip(names, values):
-            if isinstance(value, Parameter):
-                self.parameters[name] = value
-            else:
-                self.parameters[name] = Parameter(name, value, **kwargs)
+        if isinstance(value, Parameter):
+            self.parameters[name] = value
+        else:
+            self.parameters[name] = Parameter(name, value, default=default, unit=unit)
 
     def get_parameter(self, name: str) -> Any:
         """

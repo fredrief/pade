@@ -23,10 +23,20 @@ VIA4 = Layer('VIA4', 'drawing')
 
 POLY = Layer('POLY', 'drawing')
 DIFF = Layer('DIFF', 'drawing')
+TAP = Layer('TAP', 'drawing')
 NWELL = Layer('NWELL', 'drawing')
+PWELL = Layer('PWELL', 'drawing')
+
+# Implant layers
+NSDM = Layer('NSDM', 'drawing')
+PSDM = Layer('PSDM', 'drawing')
+
+# Local interconnect
 LI = Layer('LI1', 'drawing')
 LICON = Layer('LICON1', 'drawing')
 MCON = Layer('MCON', 'drawing')
+NPC = Layer('NPC', 'drawing')
 
+# Capacitor layers
 CAPM = Layer('CAPM', 'drawing')
 CAPM2 = Layer('CAPM2', 'drawing')

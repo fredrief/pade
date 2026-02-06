@@ -27,34 +27,15 @@ class NetlistCell(Cell):
 
     def __init__(self, instance_name: str, parent: Optional[Cell] = None,
                  cell_name: Optional[str] = None, source_path: Optional[str] = None,
-                 terminals: list[str] = None,
-                 parameters: Optional[dict[str, Parameter]] = None,
-                 **kwargs):
+                 terminals: list[str] = None):
         if terminals is None:
             raise ValueError("NetlistCell requires terminals")
 
         super().__init__(instance_name, parent, cell_name=cell_name)
-
         self.source_path = source_path
 
-        # Add terminals (required)
         for term_name in terminals:
             self.add_terminal(term_name)
-
-        # Add parameters with defaults, allowing overrides from kwargs
-        # Convert to strings to preserve exact values (bypass engineering notation)
-        if parameters:
-            for name, param in parameters.items():
-                if name in kwargs:
-                    self.set_parameter(name, str(kwargs[name]), default=param.default)
-                else:
-                    self.set_parameter(name, param.value, default=param.default)
-
-    @classmethod
-    def info(cls) -> str:
-        """Return info string about this cell type."""
-        # This will be set by the factory function
-        return getattr(cls, '_info', 'NetlistCell')
 
 
 def _make_subckt_class(subckt_name: str, source_path: str,
@@ -73,19 +54,21 @@ def _make_subckt_class(subckt_name: str, source_path: str,
                 cell_name=subckt_name,
                 source_path=source_path,
                 terminals=terminal_names,
-                parameters=param_defaults,
-                **kwargs
             )
+            for name, param in param_defaults.items():
+                if name in kwargs:
+                    self.set_parameter(name, str(kwargs[name]), default=param.default)
+                else:
+                    self.set_parameter(name, param.value, default=param.default)
 
-    # Set class name and info
+        @classmethod
+        def info(cls) -> str:
+            terms_str = ', '.join(terminal_names)
+            params_str = ', '.join(f'{k}={v.default}' for k, v in param_defaults.items())
+            return f'{subckt_name}({terms_str}) parameters: {params_str}'
+
     _NetlistCell.__name__ = subckt_name
     _NetlistCell.__qualname__ = subckt_name
-
-    # Build info string
-    terms_str = ', '.join(terminal_names)
-    params_str = ', '.join(f'{k}={v.default}' for k, v in param_defaults.items())
-    _NetlistCell._info = f'{subckt_name}({terms_str}) parameters: {params_str}'
-
     return _NetlistCell
 
 
