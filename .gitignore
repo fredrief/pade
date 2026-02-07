@@ -151,3 +151,5 @@ examples/sim_data/
 
 # Cursor IDE
 .cursor/
+
+legacy/
