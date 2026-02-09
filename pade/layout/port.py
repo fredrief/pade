@@ -1,9 +1,13 @@
 """
-Port class for layout connectivity and LVS.
+Port - A routing reference point on a layout cell.
+
+Ports are purely Python-side references for convenient routing between cells.
+They have no direct LVS significance; layout writers generate labels from
+schematic terminals and shape nets instead.
 """
 
 from dataclasses import dataclass
-from typing import Tuple, Optional, TYPE_CHECKING
+from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pade.layout.cell import LayoutCell
@@ -13,19 +17,14 @@ if TYPE_CHECKING:
 @dataclass
 class Port:
     """
-    A port/pin on a layout cell for connectivity.
-
-    Ports are used for:
-    - LVS pin recognition
-    - Routing connection points
-    - Hierarchical connectivity
+    A routing reference on a layout cell.
 
     Attributes:
-        name: Port name (e.g., 'D', 'G', 'S', 'PLUS', 'MINUS')
+        name: Python access key (e.g., 'G0', 'IN', 'D')
         cell: The LayoutCell this port belongs to
         layer: Layer the port is on
         x0, y0, x1, y1: Port geometry bounds (in cell's local coordinates, nm)
-        net: Net name for this port
+        net: Net name for connectivity (from shape or schematic)
     """
     name: str
     cell: 'LayoutCell'
@@ -34,7 +33,7 @@ class Port:
     y0: int
     x1: int
     y1: int
-    net: Optional[str] = None
+    net: str
 
     @property
     def bounds(self) -> Tuple[int, int, int, int]:

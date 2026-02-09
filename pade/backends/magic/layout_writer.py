@@ -132,17 +132,14 @@ class MagicLayoutWriter(LayoutWriter):
                     lines.append(f'transform 1 0 {x} 0 1 {y}')
                 lines.append('box 0 0 0 0')
 
-        # Write labels/ports
-        # Magic label format: rlabel layer x1 y1 x2 y2 position text
-        # For ports (LVS), we need to use proper port syntax
-        if cell.ports:
+        # Write LVS labels from schematic terminals
+        labels = self._collect_labels(cell)
+        if labels:
             lines.append('<< labels >>')
-            for port_name, port in cell.ports.items():
-                layer_name = self._get_magic_layer(port.layer)
-                x0, y0, x1, y1 = [v // self.scale for v in port.bounds]
-                # Simple rlabel - the port definition is done via Tcl/interactive
-                # For LVS, labels on top-level pins are recognized
-                lines.append(f'rlabel {layer_name} {x0} {y0} {x1} {y1} 0 {port_name}')
+            for net_name, layer, x0, y0, x1, y1 in labels:
+                layer_name = self._get_magic_layer(layer)
+                x0, y0, x1, y1 = [v // self.scale for v in (x0, y0, x1, y1)]
+                lines.append(f'rlabel {layer_name} {x0} {y0} {x1} {y1} 0 {net_name}')
 
         lines.append('<< end >>')
 

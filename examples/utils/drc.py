@@ -73,8 +73,7 @@ load {cell_name}
 select top cell
 drc check
 drc catchup
-set count [drc count total]
-puts "DRC_ERROR_COUNT: $count"
+drc count total
 
 # Write detailed report
 set f [open "{report_path}" w]
@@ -103,10 +102,10 @@ quit -noprompt
                 f.write('\n--- STDERR ---\n')
                 f.write(result.stderr)
 
-        # Parse error count
+        # Parse error count from "Total DRC errors found: N" output
         error_count = 0
         for line in result.stdout.split('\n'):
-            if 'DRC_ERROR_COUNT:' in line:
+            if 'Total DRC errors found:' in line:
                 try:
                     error_count = int(line.split(':')[1].strip())
                 except (ValueError, IndexError):

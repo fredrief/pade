@@ -20,16 +20,27 @@ from utils.lvs import LVS
 
 def run_drc(cell, writer, drc):
     """Write GDS and run DRC, return True if passed."""
-    gds_path = writer.write(cell, config.layout_dir)
+    writer.write(cell, config.layout_dir)
     result = drc.run(cell)
     print(f"  Shapes: {len(cell.shapes)}, bbox: {cell.bbox()}")
     print(f"  {result}")
     if not result.passed:
         with open(result.report_path) as f:
-            lines = f.readlines()[:30]
-            for line in lines:
+            for line in f.readlines()[:30]:
                 print(f"    {line.rstrip()}")
     return result.passed
+
+
+def run_lvs(layout, schematic, writer, lvs):
+    """Write GDS and run LVS, return True if matched."""
+    writer.write(layout, config.layout_dir)
+    result = lvs.run(layout, schematic)
+    print(f"  {result}")
+    if not result.matched:
+        with open(result.report_path) as f:
+            for line in f.readlines()[:50]:
+                print(f"    {line.rstrip()}")
+    return result.matched
 
 
 def test_nfet_single():
@@ -51,7 +62,8 @@ def test_nfet_single():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc}:")
-        nfet = NFET_01V8_Layout('M1', w=w, l=l, nf=1)
+        sch = Nfet01v8('M1', None, w=w, l=l, nf=1)
+        nfet = NFET_01V8_Layout('M1', None, schematic=sch)
         if not run_drc(nfet, writer, drc):
             all_passed = False
 
@@ -75,7 +87,8 @@ def test_pfet_single():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc}:")
-        pfet = PFET_01V8_Layout('M1', w=w, l=l, nf=1)
+        sch = Pfet01v8('M1', None, w=w, l=l, nf=1)
+        pfet = PFET_01V8_Layout('M1', None, schematic=sch)
 
         has_nwell = any(s.layer.name == 'NWELL' for s in pfet.shapes)
         print(f"  NWELL present: {has_nwell}")
@@ -100,19 +113,20 @@ def test_tap_configurations():
     drc = DRC()
 
     test_cases = [
-        (NFET_01V8_Layout, 'left', 'NFET tap=left'),
-        (NFET_01V8_Layout, 'right', 'NFET tap=right'),
-        (NFET_01V8_Layout, 'both', 'NFET tap=both'),
-        (PFET_01V8_Layout, 'left', 'PFET tap=left'),
-        (PFET_01V8_Layout, 'right', 'PFET tap=right'),
-        (PFET_01V8_Layout, 'both', 'PFET tap=both'),
+        (Nfet01v8, NFET_01V8_Layout, 'left', 'NFET tap=left'),
+        (Nfet01v8, NFET_01V8_Layout, 'right', 'NFET tap=right'),
+        (Nfet01v8, NFET_01V8_Layout, 'both', 'NFET tap=both'),
+        (Pfet01v8, PFET_01V8_Layout, 'left', 'PFET tap=left'),
+        (Pfet01v8, PFET_01V8_Layout, 'right', 'PFET tap=right'),
+        (Pfet01v8, PFET_01V8_Layout, 'both', 'PFET tap=both'),
     ]
 
     all_passed = True
-    for cls, tap, desc in test_cases:
+    for sch_cls, lay_cls, tap, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            dev = cls('M1', w=1.0, l=0.15, nf=1, tap=tap)
+            sch = sch_cls('M1', None, w=1.0, l=0.15, nf=1)
+            dev = lay_cls('M1', None, schematic=sch, tap=tap)
             if not run_drc(dev, writer, drc):
                 all_passed = False
         except Exception as e:
@@ -133,19 +147,29 @@ def test_multi_finger():
     writer = GDSWriter(layer_map=sky130_layers)
     drc = DRC()
 
+    # (sch_cls, lay_cls, w, l, nf, poly_contact, desc)
     test_cases = [
-        (NFET_01V8_Layout, 1.0, 0.15, 2, "NFET 1um x 150nm, nf=2"),
-        (NFET_01V8_Layout, 1.0, 0.15, 4, "NFET 1um x 150nm, nf=4"),
-        (NFET_01V8_Layout, 0.42, 0.15, 3, "NFET min W, nf=3"),
-        (PFET_01V8_Layout, 1.0, 0.15, 2, "PFET 1um x 150nm, nf=2"),
-        (PFET_01V8_Layout, 1.0, 0.15, 4, "PFET 1um x 150nm, nf=4"),
+        (Nfet01v8, NFET_01V8_Layout, 1.0, 0.15, 2, None, "NFET 1um x 150nm, nf=2"),
+        (Nfet01v8, NFET_01V8_Layout, 1.0, 0.15, 4, None, "NFET 1um x 150nm, nf=4"),
+        (Nfet01v8, NFET_01V8_Layout, 0.42, 0.15, 3, None, "NFET min W, nf=3"),
+        (Pfet01v8, PFET_01V8_Layout, 1.0, 0.15, 2, None, "PFET 1um x 150nm, nf=2"),
+        (Pfet01v8, PFET_01V8_Layout, 1.0, 0.15, 4, None, "PFET 1um x 150nm, nf=4"),
+        # poly_contact='right' tests (verifies S/D bus fix)
+        (Nfet01v8, NFET_01V8_Layout, 1.0, 0.15, 2, 'right', "NFET nf=2, contact=right"),
+        (Pfet01v8, PFET_01V8_Layout, 1.0, 0.15, 2, 'right', "PFET nf=2, contact=right"),
+        # poly_contact='both' tests
+        (Nfet01v8, NFET_01V8_Layout, 1.0, 0.15, 2, 'both', "NFET nf=2, contact=both"),
+        (Nfet01v8, NFET_01V8_Layout, 1.0, 0.15, 4, 'both', "NFET nf=4, contact=both"),
+        (Pfet01v8, PFET_01V8_Layout, 1.0, 0.15, 2, 'both', "PFET nf=2, contact=both"),
+        (Pfet01v8, PFET_01V8_Layout, 1.0, 0.15, 4, 'both', "PFET nf=4, contact=both"),
     ]
 
     all_passed = True
-    for cls, w, l, nf, desc in test_cases:
+    for sch_cls, lay_cls, w, l, nf, poly_contact, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            dev = cls('M1', w=w, l=l, nf=nf)
+            sch = sch_cls('M1', None, w=w, l=l, nf=nf)
+            dev = lay_cls('M1', None, schematic=sch, poly_contact=poly_contact)
             if not run_drc(dev, writer, drc):
                 all_passed = False
         except Exception as e:
@@ -155,19 +179,6 @@ def test_multi_finger():
             all_passed = False
 
     return all_passed
-
-
-def run_lvs(layout, schematic, writer, lvs):
-    """Write GDS and run LVS, return True if matched."""
-    gds_path = writer.write(layout, config.layout_dir)
-    result = lvs.run(layout, schematic)
-    print(f"  {result}")
-    if not result.matched:
-        with open(result.report_path) as f:
-            lines = f.readlines()[:50]
-            for line in lines:
-                print(f"    {line.rstrip()}")
-    return result.matched
 
 
 def test_lvs_nfet():
@@ -191,9 +202,9 @@ def test_lvs_nfet():
     for w, l, nf, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            schematic = Nfet01v8('M1', None, w=w, l=l, nf=nf)
-            layout = NFET_01V8_Layout('M1', schematic=schematic)
-            if not run_lvs(layout, schematic, writer, lvs):
+            sch = Nfet01v8('M1', None, w=w, l=l, nf=nf)
+            layout = NFET_01V8_Layout('M1', None, schematic=sch)
+            if not run_lvs(layout, sch, writer, lvs):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -225,9 +236,9 @@ def test_lvs_pfet():
     for w, l, nf, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            schematic = Pfet01v8('M1', None, w=w, l=l, nf=nf)
-            layout = PFET_01V8_Layout('M1', schematic=schematic)
-            if not run_lvs(layout, schematic, writer, lvs):
+            sch = Pfet01v8('M1', None, w=w, l=l, nf=nf)
+            layout = PFET_01V8_Layout('M1', None, schematic=sch)
+            if not run_lvs(layout, sch, writer, lvs):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -245,23 +256,16 @@ def main():
 
     passed = True
 
-    # DRC tests
     if not test_nfet_single():
         passed = False
-
     if not test_pfet_single():
         passed = False
-
     if not test_tap_configurations():
         passed = False
-
     if not test_multi_finger():
         passed = False
-
-    # LVS tests
     if not test_lvs_nfet():
         passed = False
-
     if not test_lvs_pfet():
         passed = False
 

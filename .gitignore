@@ -153,3 +153,5 @@ examples/sim_data/
 .cursor/
 
 legacy/
+*.pdf
+docs/

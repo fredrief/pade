@@ -115,12 +115,12 @@ class GDSWriter(LayoutWriter):
             )
             gds_cell.add(ref)
 
-        # Add port labels (use pin datatype = 16 for LVS port recognition)
-        for port_name, port in cell.ports.items():
-            layer, _ = self._get_gds_layer(port.layer)
-            b = port.bounds
-            cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
-            label = gdstk.Label(port_name, (cx, cy), layer=layer, texttype=self.pin_texttype)
+        # Add LVS labels from schematic terminals (or ports as fallback)
+        for net_name, label_layer, x0, y0, x1, y1 in self._collect_labels(cell):
+            gds_layer, _ = self._get_gds_layer(label_layer)
+            cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+            label = gdstk.Label(net_name, (cx, cy), layer=gds_layer,
+                                texttype=self.pin_texttype)
             gds_cell.add(label)
 
         return gds_cell

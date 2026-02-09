@@ -1,62 +1,78 @@
-"""SKY130 Capacitor Layout Primitives."""
+"""SKY130 MiM Capacitor Layout."""
 
 from pdk.sky130.rules import sky130_rules
 from pdk.sky130.layout import SKY130LayoutCell
-from pdk.sky130.layers import M4, M5, CAPM2, VIA4
+from pdk.sky130.layers import M3, M4, M5, CAPM, CAPM2, VIA3, VIA4
 
 
-class CapMimM4Layout(SKY130LayoutCell):
+class CapMimLayout(SKY130LayoutCell):
     """
-    MiM capacitor layout using M4/M5 with CAPM2 and VIA4 contact.
+    MiM capacitor layout.
 
-    Parameters (dimensions in um):
-        width: Cap width (default 10 um)
-        height: Cap height (default 10 um)
-        schematic: Optional schematic Cell instance (extracts w, l as width, height)
+    Parameters:
+        instance_name: Instance name
+        parent: Parent layout cell
+        schematic: Schematic CapMim Cell (extracts w, l, metal)
     """
 
     def __init__(self,
                  instance_name: str,
-                 parent: SKY130LayoutCell = None,
-                 schematic=None,
-                 width: float = 10.0,
-                 height: float = 10.0):
-        if schematic is not None:
-            width = float(schematic.get_parameter('w'))
-            height = float(schematic.get_parameter('l'))
+                 parent: SKY130LayoutCell,
+                 schematic):
+        w = float(schematic.get_parameter('w'))
+        l = float(schematic.get_parameter('l'))
+        metal = schematic.metal
 
-        super().__init__(instance_name, parent, cell_name='cap_mim_m4',
+        if metal not in (3, 4):
+            raise ValueError(f"Invalid metal layer {metal}. Must be 3 or 4.")
+
+        super().__init__(instance_name, parent, cell_name=f'cap_mim_m{metal}',
                          schematic=schematic)
 
-        w_nm = self.to_nm(width)
-        h_nm = self.to_nm(height)
-        self.width = w_nm
-        self.height = h_nm
+        w_nm = self.to_nm(w)
+        h_nm = self.to_nm(l)
 
+        if metal == 3:
+            self._draw_m3_cap(w_nm, h_nm)
+        else:
+            self._draw_m4_cap(w_nm, h_nm)
+
+    def _draw_m3_cap(self, w: int, h: int):
+        """Draw M3/M4 capacitor (CAPM layer)."""
+        m3_enc = sky130_rules.CAPM.ENC_BY_M3
+        m4_enc = sky130_rules.VIA3.ENC_TOP
+
+        bot = self.add_rect(M3, -m3_enc, -m3_enc, w + m3_enc, h + m3_enc, net='BOT')
+        self.add_rect(CAPM, 0, 0, w, h)
+        self._add_via_array(VIA3, sky130_rules.VIA3.W, sky130_rules.VIA3.S,
+                            m4_enc, w, h, net='TOP')
+        top = self.add_rect(M4, 0, 0, w, h, net='TOP')
+
+        self.add_port('TOP', shape=top)
+        self.add_port('BOT', shape=bot)
+
+    def _draw_m4_cap(self, w: int, h: int):
+        """Draw M4/M5 capacitor (CAPM2 layer)."""
         m4_enc = sky130_rules.CAPM2.ENC_BY_M4
         m5_enc = sky130_rules.VIA4.ENC_TOP
 
-        self.add_rect(M4, -m4_enc, -m4_enc, w_nm + m4_enc, h_nm + m4_enc, net='MINUS')
-        self.add_rect(CAPM2, 0, 0, w_nm, h_nm)
+        bot = self.add_rect(M4, -m4_enc, -m4_enc, w + m4_enc, h + m4_enc, net='BOT')
+        self.add_rect(CAPM2, 0, 0, w, h)
+        self._add_via_array(VIA4, sky130_rules.VIA4.W, sky130_rules.VIA4.S,
+                            m5_enc, w, h, net='TOP')
+        top = self.add_rect(M5, 0, 0, w, h, net='TOP')
 
-        via_margin = m5_enc
-        self._add_via4_array(via_margin)
+        self.add_port('TOP', shape=top)
+        self.add_port('BOT', shape=bot)
 
-        self.add_rect(M5, 0, 0, w_nm, h_nm, net='PLUS')
-
-        self.add_port('MINUS', M4, 0, 0)
-        self.add_port('PLUS', M5, w_nm // 2, h_nm // 2)
-
-    def _add_via4_array(self, margin: int):
-        """Add VIA4 array inside the cap region."""
-        via_w = sky130_rules.VIA4.W
-        via_s = sky130_rules.VIA4.S
+    def _add_via_array(self, layer, via_w: int, via_s: int, margin: int,
+                       cap_w: int, cap_h: int, net: str):
+        """Add via array inside capacitor region."""
         pitch = via_w + via_s
-
         x = margin
-        while x + via_w <= self.width - margin:
+        while x + via_w <= cap_w - margin:
             y = margin
-            while y + via_w <= self.height - margin:
-                self.add_rect(VIA4, x, y, x + via_w, y + via_w, net='PLUS')
+            while y + via_w <= cap_h - margin:
+                self.add_rect(layer, x, y, x + via_w, y + via_w, net=net)
                 y += pitch
             x += pitch

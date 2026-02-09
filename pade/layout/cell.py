@@ -135,31 +135,99 @@ class LayoutCell:
         self.shapes.append(shape)
         return shape
 
-    def add_port(self, name: str, layer: Layer,
-                 x0: int, y0: int, x1: int, y1: int,
-                 net: Optional[str] = None) -> Port:
+    def add_port(self, name: str = None, *,
+                 shape: Shape = None,
+                 port: Port = None) -> Port:
         """
-        Add a port to this cell.
+        Add a routing reference port to this cell.
 
-        Ports are labels for LVS. All coordinates are explicit.
-        
+        Ports are Python-side routing references. LVS labels are generated
+        automatically by layout writers from schematic terminals and shape nets.
+
+        Net is derived from the source:
+        - shape: uses shape.net (must exist)
+        - port: resolved from schematic connectivity
+
+        Name defaults to the resolved net name.
+
         Args:
-            name: Port name
-            layer: Layer for the port
-            x0, y0: Lower-left corner (nm)
-            x1, y1: Upper-right corner (nm)
-            net: Net name (defaults to port name)
+            name: Port access name (defaults to net name)
+            shape: Create port from this shape's layer and bounds
+            port: Create port from a subcell's port
 
         Returns:
             The created Port
         """
-        if net is None:
-            net = name
-        
-        port = Port(name=name, cell=self, layer=layer,
-                    x0=x0, y0=y0, x1=x1, y1=y1, net=net)
-        self.ports[name] = port
-        return port
+        if shape is not None and port is not None:
+            raise ValueError("Specify either shape= or port=, not both")
+        if shape is None and port is None:
+            raise ValueError("Must specify shape= or port=")
+
+        if shape is not None:
+            if shape.net is None:
+                raise ValueError("Shape must have a net to create a port")
+            net = shape.net
+            layer = shape.layer
+            x0, y0, x1, y1 = shape.bounds
+        else:
+            net = self._resolve_port_net(port)
+            layer = port.layer
+            x0, y0, x1, y1 = self._transform_port_bounds(port)
+
+        if name is None:
+            name = net
+
+        new_port = Port(name=name, cell=self, layer=layer,
+                        x0=x0, y0=y0, x1=x1, y1=y1, net=net)
+        self.ports[name] = new_port
+        return new_port
+
+    def _resolve_port_net(self, port: Port) -> str:
+        """Resolve net name for a subcell port via schematic connectivity."""
+        if self.schematic is None:
+            return port.net
+
+        # Walk up to find the direct subcell of self
+        subcell = port.cell
+        while subcell.parent is not None and subcell.parent is not self:
+            subcell = subcell.parent
+        if subcell.parent is not self:
+            raise ValueError(f"Port's cell is not a descendant of {self}")
+
+        schem = subcell.schematic
+        if schem is None:
+            return port.net
+
+        # Map port.net to schematic terminal (case-insensitive)
+        term_name = next(
+            (t for t in schem.terminals if t.lower() == port.net.lower()),
+            None
+        )
+        if term_name and schem.terminals[term_name].net is not None:
+            return schem.terminals[term_name].net.name
+
+        return port.net
+
+    def _transform_port_bounds(self, port: Port) -> tuple:
+        """Transform port bounds from source cell to self's coordinate system."""
+        corners = [
+            (port.x0, port.y0), (port.x1, port.y0),
+            (port.x0, port.y1), (port.x1, port.y1),
+        ]
+        transformed = []
+        for cx, cy in corners:
+            x, y = cx, cy
+            cell = port.cell
+            while cell is not None and cell is not self:
+                x, y = cell.transform.apply_point(x, y)
+                cell = cell.parent
+            if cell is not self:
+                raise ValueError(
+                    f"Port '{port.name}' on '{port.cell}' is not a subcell of '{self}'")
+            transformed.append((x, y))
+        xs = [t[0] for t in transformed]
+        ys = [t[1] for t in transformed]
+        return min(xs), min(ys), max(xs), max(ys)
 
     def get_port(self, name: str) -> Port:
         """Get port by name."""
@@ -183,7 +251,8 @@ class LayoutCell:
             layer: Layer for the route
             width: Route width in nm
             how: Route pattern:
-                 '-'  : straight line (points must be aligned)
+                 '-'  : horizontal (straight in x, ignores end y)
+                 '|'  : vertical (straight in y, ignores end x)
                  '-|' : horizontal first, then vertical
                  '|-' : vertical first, then horizontal
             jog_start: Perpendicular offset at start (nm). Sign determines direction.
@@ -213,6 +282,8 @@ class LayoutCell:
                              ) -> Tuple[int, int, Optional[str]]:
         """
         Resolve a route point to (x, y, net).
+
+        Handles subcell ports by transforming coordinates to self's system.
         
         Args:
             point: (x, y) tuple, Port object, or port name string
@@ -222,6 +293,11 @@ class LayoutCell:
         """
         if isinstance(point, Port):
             cx, cy = point.center
+            # Transform through hierarchy if port belongs to a subcell
+            cell = point.cell
+            while cell is not None and cell is not self:
+                cx, cy = cell.transform.apply_point(cx, cy)
+                cell = cell.parent
             return cx, cy, point.net
         if isinstance(point, str):
             port = self.get_port(point)
@@ -239,7 +315,7 @@ class LayoutCell:
         Args:
             x0, y0: Start coordinates
             x1, y1: End coordinates
-            how: Route pattern ('-', '-|', '|-')
+            how: Route pattern ('-', '|', '-|', '|-')
             jog_start: Perpendicular offset at start
             jog_end: Perpendicular offset at end
         
@@ -250,30 +326,27 @@ class LayoutCell:
         
         # Apply jog_start (perpendicular to first segment direction)
         if jog_start != 0:
-            if how == '-|' or how == '-':
-                # First segment is horizontal, jog is vertical
+            if how in ('-', '-|'):
                 points.append((x0, y0 + jog_start))
                 x0, y0 = x0, y0 + jog_start
-            elif how == '|-':
-                # First segment is vertical, jog is horizontal
+            elif how in ('|', '|-'):
                 points.append((x0 + jog_start, y0))
                 x0, y0 = x0 + jog_start, y0
-        
+
         # Apply jog_end (perpendicular to last segment direction)
         if jog_end != 0:
             if how == '-|':
-                # Last segment is vertical, jog is horizontal
                 x1 = x1 + jog_end
-            elif how == '|-' or how == '-':
-                # Last segment is horizontal, jog is vertical
+            elif how == '|-':
                 y1 = y1 + jog_end
-        
+
         # Main routing pattern
         if how == '-':
-            # Straight line - must be aligned
-            if x0 != x1 and y0 != y1:
-                raise ValueError(f"Straight route '-' requires aligned points: ({x0},{y0}) to ({x1},{y1})")
-            points.append((x1, y1))
+            # Horizontal: straight in x at start y, ignore end y
+            points.append((x1, y0))
+        elif how == '|':
+            # Vertical: straight in y at start x, ignore end x
+            points.append((x0, y1))
         elif how == '-|':
             # Horizontal first, then vertical
             points.append((x1, y0))  # Go horizontal to x1
@@ -283,15 +356,65 @@ class LayoutCell:
             points.append((x0, y1))  # Go vertical to y1
             points.append((x1, y1))  # Then horizontal to x1
         else:
-            raise ValueError(f"Unknown route pattern: '{how}'. Use '-', '-|', or '|-'")
-        
-        # Apply jog_end adjustment at final point
-        if jog_end != 0:
-            # Add final segment to reach actual endpoint
-            orig_x1, orig_y1 = self._resolve_route_point((x1, y1))[:2]
-            # Already applied above by modifying x1/y1
+            raise ValueError(f"Unknown route pattern: '{how}'. Use '-', '|', '-|', or '|-'")
         
         return points
+
+    def move(self, dx: int = 0, dy: int = 0) -> 'LayoutCell':
+        """Shift position by (dx, dy) relative to current location."""
+        self.transform.x += dx
+        self.transform.y += dy
+        return self
+
+    def rotate(self, degrees: int) -> 'LayoutCell':
+        """Rotate by degrees (0, 90, 180, 270). Composes with current rotation."""
+        self.transform.rotation = (self.transform.rotation + degrees) % 360
+        return self
+
+    def mirror_x(self) -> 'LayoutCell':
+        """Mirror about X axis (flip vertically). Toggles current mirror state."""
+        self.transform.mirror_x = not self.transform.mirror_x
+        return self
+
+    def transformed_bbox(self) -> Tuple[int, int, int, int]:
+        """Bounding box in parent coordinates (with transform applied)."""
+        b = self.bbox()
+        corners = [
+            self.transform.apply_point(b[0], b[1]),
+            self.transform.apply_point(b[2], b[1]),
+            self.transform.apply_point(b[0], b[3]),
+            self.transform.apply_point(b[2], b[3]),
+        ]
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        return (min(xs), min(ys), max(xs), max(ys))
+
+    def align(self, direction: str, other: 'LayoutCell', margin: int = 0) -> 'LayoutCell':
+        """
+        Align self relative to other cell (both must share the same parent).
+
+        Directions:
+            'right': self's left edge at other's right edge + margin
+            'left':  self's right edge at other's left edge - margin
+            'above': self's bottom edge at other's top edge + margin
+            'below': self's top edge at other's bottom edge - margin
+
+        Returns self for chaining.
+        """
+        sb = self.transformed_bbox()
+        ob = other.transformed_bbox()
+
+        if direction == 'right':
+            self.move(dx=ob[2] + margin - sb[0])
+        elif direction == 'left':
+            self.move(dx=ob[0] - margin - sb[2])
+        elif direction == 'above':
+            self.move(dy=ob[3] + margin - sb[1])
+        elif direction == 'below':
+            self.move(dy=ob[1] - margin - sb[3])
+        else:
+            raise ValueError(f"Unknown direction: '{direction}'. Use 'right', 'left', 'above', 'below'.")
+        return self
 
     def _add_subcell(self, cell: 'LayoutCell') -> None:
         """Internal: register a subcell."""

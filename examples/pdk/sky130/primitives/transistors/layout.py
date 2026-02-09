@@ -8,9 +8,10 @@ Transistor layout with horizontal poly orientation:
 - Origin at lower-left corner
 """
 
+from types import SimpleNamespace
 from pdk.sky130.layout import SKY130LayoutCell
 from pdk.sky130.layers import (
-    POLY, DIFF, TAP, NWELL, PWELL, NSDM, PSDM, LI, LICON, MCON, NPC, M1
+    POLY, DIFF, TAP, NWELL, NSDM, PSDM, LI, LICON, MCON, NPC, M1
 )
 
 
@@ -19,12 +20,12 @@ class MOSFET_Layout(SKY130LayoutCell):
     Base MOSFET layout generator for SKY130.
 
     Parameters (all dimensions in um):
-        w: Gate width (default 1.0 um)
-        l: Gate length (default 0.15 um)
+        w: Gate width
+        l: Gate length
         nf: Number of fingers
         tap: 'left', 'right', 'both', or None
         poly_contact: 'left', 'right', 'both', or None (default follows tap)
-        schematic: Optional schematic Cell instance (extracts w, l, nf)
+        schematic: Schematic Cell instance (extracts w, l, nf)
     """
 
     DIFF_TYPE = DIFF
@@ -34,41 +35,16 @@ class MOSFET_Layout(SKY130LayoutCell):
     SUB_TYPE = None
     DEFAULT_TAP = 'left'
 
-    def __init__(self,
-                 instance_name: str,
-                 parent: SKY130LayoutCell = None,
-                 schematic=None,
-                 w: float = 1.0,
-                 l: float = 0.15,
-                 nf: int = 1,
-                 tap: str = None,
-                 poly_contact: str = None,
-                 cell_name: str = None):
-        """
-        Create MOSFET layout.
-
-        Args:
-            instance_name: Instance name
-            parent: Parent layout cell
-            schematic: Schematic Cell instance (w, l, nf extracted from it)
-            w: Gate width in um (default 1.0)
-            l: Gate length in um (default 0.15)
-            nf: Number of fingers (default 1)
-            tap: Tap position ('left', 'right', 'both', None). Default: class default
-            poly_contact: Poly contact position. Default: follows tap
-            cell_name: Base cell name (used as prefix for encoded name)
-        """
-        # Resolve tap/poly_contact before passing as kwargs
+    def __init__(self, instance_name, parent, schematic,
+                 tap=None, poly_contact=None, cell_name=None):
         tap = tap if tap is not None else self.DEFAULT_TAP
         poly_contact = poly_contact if poly_contact is not None else tap
         if poly_contact is None:
             poly_contact = 'left'
 
-        # Extract schematic parameters if provided
-        if schematic is not None:
-            w = float(schematic.get_parameter('w'))
-            l = float(schematic.get_parameter('l'))
-            nf = int(schematic.get_parameter('nf'))
+        w = float(schematic.get_parameter('w'))
+        l = float(schematic.get_parameter('l'))
+        nf = int(schematic.get_parameter('nf'))
 
         super().__init__(instance_name, parent, cell_name=cell_name,
                          schematic=schematic,
@@ -84,586 +60,588 @@ class MOSFET_Layout(SKY130LayoutCell):
         self._draw()
 
     def _validate_parameters(self):
-        """Check parameters against design rules (rules are in nm)."""
         r = self.rules.MOS
-        l_nm = self.to_nm(self.l)
-        w_nm = self.to_nm(self.w)
-        if l_nm < r.MIN_L:
-            raise ValueError(f"Gate length {l_nm}nm < minimum {r.MIN_L}nm")
-        if w_nm < r.MIN_W:
-            raise ValueError(f"Gate width {w_nm}nm < minimum {r.MIN_W}nm")
+        if self.to_nm(self.l) < r.MIN_L:
+            raise ValueError(f"Gate length {self.to_nm(self.l)}nm < minimum {r.MIN_L}nm")
+        if self.to_nm(self.w) < r.MIN_W:
+            raise ValueError(f"Gate width {self.to_nm(self.w)}nm < minimum {r.MIN_W}nm")
+        if self.nf < 1:
+            raise ValueError(f"Number of fingers must be >= 1, got {self.nf}")
         if self.tap not in ('left', 'right', 'both', None):
             raise ValueError(f"Invalid tap position: {self.tap}")
         if self.poly_contact not in ('left', 'right', 'both', None):
             raise ValueError(f"Invalid poly_contact position: {self.poly_contact}")
-    
+
+    # --- Main draw flow ---
+
     def _draw(self):
-        """Draw the transistor."""
-        if self.nf == 1:
-            self._draw_single_finger()
-        else:
-            self._draw_multi_finger()
-    
-    def _draw_single_finger(self):
-        """Draw a single-finger transistor with horizontal poly.
-        
-        Layout structure (vertical stacking):
-            - Dummy poly (top)
-            - Drain contact region
-            - Active poly gate
-            - Source contact region  
-            - Dummy poly (bottom)
-            
-        Gate contacts at left/right ends of poly, past diffusion.
-        """
+        g = self._compute_geometry()
+        self._draw_diffusion(g)
+        self._draw_poly(g)
+        self._draw_implants(g)
+        self._draw_sd_contacts(g)
+        self._draw_gate_contacts(g)
+        self._draw_m1_routing(g)
+        self._draw_taps(g)
+        self._draw_well(g)
+        self._add_ports(g)
+
+    # --- Geometry computation ---
+
+    def _compute_geometry(self):
+        """Compute all layout coordinates and dimensions."""
+        g = SimpleNamespace()
         r = self.rules.MOS
         licon = self.rules.LICON
         mcon = self.rules.MCON
         m1 = self.rules.M1
+        impl = self.rules.IMPL
 
-        gate_w = self.to_nm(self.w)
-        gate_l = self.to_nm(self.l)
-        
-        licon_size = licon.W  # LICON size (170nm)
-        licon_space = licon.S  # LICON spacing (170nm)
-        mcon_size = mcon.W  # MCON size (170nm)
-        mcon_space = mcon.S  # MCON spacing (190nm)
-        
-        # S/D contact region height (diffusion extension beyond gate)
-        sd_region = r.DIFF_EXT
-        
-        # Gate contact dimensions: 2 LICONs/MCONs arranged horizontally
-        poly_enc_cont = licon.ENC_POLY
-        licon_array_w = 2 * licon_size + licon_space  # 510nm
-        mcon_array_w = 2 * mcon_size + mcon_space  # 530nm
-        
-        # Gate contact height (single row of vias)
-        gate_cont_h = licon_size + 2 * poly_enc_cont
-        
-        # Gate contact M1 width (2 MCONs + enclosure)
-        gate_m1_w = mcon_array_w + 2 * mcon.ENC_TOP  # ~650nm
-        
-        # Gate contact poly width
-        gate_poly_w = licon_array_w + 2 * poly_enc_cont  # ~710nm
-        
-        # Poly extension beyond diffusion:
-        # Need space for: gate M1 + S bus routing + spacing to S/D M1
-        # Layout: gate_M1 | S_bus | gap | S/D_M1 | diffusion
-        s_bus_w = m1.MIN_W
-        poly_ext = gate_m1_w + m1.MIN_S + s_bus_w + m1.MIN_S
-        
-        # Tap dimensions - add spacing for S bus routing
-        tap_spacing = m1.MIN_W + m1.MIN_S  # Space between tap M1 and S bus
+        g.gate_w = self.to_nm(self.w)
+        g.gate_l = self.to_nm(self.l)
+        g.nf = self.nf
+        g.is_ptype_sd = (self.DIFF_IMPLANT.name == 'PSDM')
+        g.impl_enc = impl.ENC_DIFF
+        g.poly_to_diff = r.DIFF_POLY_SPACE
+
+        # LI height for contacts
+        li_enc = licon.ENC_LI
+        li_spacing = self.rules.LI.MIN_S
+        g.li_h = licon.W + 2 * li_enc
+
+        # S/D region: ensure LI spacing between adjacent S/D and gate contacts
+        # Derived from: sd_region/2 + li_h/2 + li_spacing <= sd_region + gate_l/2 - li_h/2
+        sd_region_for_li = 2 * (g.li_h + li_spacing) - g.gate_l
+        g.sd_region = max(r.DIFF_EXT, sd_region_for_li)
+
+        # Gate contact array (2 LICONs horizontal)
+        licon_array_w = 2 * licon.W + licon.S
+        mcon_array_w = 2 * mcon.W + mcon.S
+        g.gate_cont_h = licon.W + 2 * licon.ENC_POLY
+        g.gate_m1_w = mcon_array_w + 2 * mcon.ENC_TOP
+        g.gate_m1_h = mcon.W + 2 * mcon.ENC_TOP
+        li_gc_w = licon_array_w + 2 * li_enc
+
+        # Gate contact X offset from device edge
+        licon_to_impl = licon.S_IMPL
+        gc_offset_default = g.gate_m1_w // 2
+        gc_offset_for_tap = (licon_to_impl + licon_array_w // 2
+                             - (g.impl_enc - r.TAP_DIFF_SPACE))
+
+        g.tap_left = self.tap in ('left', 'both')
+        g.tap_right = self.tap in ('right', 'both')
+
+        g.gc_offset_left = (gc_offset_for_tap
+                            if (g.tap_left and self.poly_contact in ('left', 'both'))
+                            else gc_offset_default)
+        g.gc_offset_right = (gc_offset_for_tap
+                             if (g.tap_right and self.poly_contact in ('right', 'both'))
+                             else gc_offset_default)
+
+        # S/D M1 width (needed for multi-finger bus routing clearance)
+        sd_avail = g.gate_w - 2 * licon.ENC_DIFF
+        sd_n_licon = self._calc_via_count(sd_avail, licon.W, licon.S)
+        sd_licon_arr = sd_n_licon * licon.W + (sd_n_licon - 1) * licon.S if sd_n_licon > 1 else licon.W
+        sd_n_mcon = self._calc_via_count(sd_licon_arr, mcon.W, mcon.S)
+        sd_mcon_arr = sd_n_mcon * mcon.W + (sd_n_mcon - 1) * mcon.S if sd_n_mcon > 1 else mcon.W
+        g.sd_m1_w = sd_mcon_arr + 2 * mcon.ENC_TOP
+
+        # Poly extensions
+        poly_ext_for_li = gc_offset_default + li_gc_w // 2 + li_spacing + li_enc
+        # Per-side: LICON-to-P-diff spacing (uses actual gc_offset for each side)
+        poly_ext_for_impl_left = (g.gc_offset_left + licon_array_w // 2
+                                  + licon_to_impl + g.impl_enc)
+        poly_ext_for_impl_right = (g.gc_offset_right + licon_array_w // 2
+                                   + licon_to_impl + g.impl_enc)
+
+        # Multi-finger bus routing: gc_M1 | spacing | bus_M1 | spacing | sd_M1
+        # Only applies to the side where the bus sits between gate contact and diffusion
+        has_left_contact = self.poly_contact in ('left', 'both')
+        has_right_contact = self.poly_contact in ('right', 'both')
+        needs_left_bus = g.nf > 1 and has_left_contact
+        needs_right_bus = g.nf > 1 and has_right_contact
+        poly_ext_for_bus_left = (g.gc_offset_left + g.gate_m1_w // 2
+                                 + 2 * m1.MIN_S + m1.MIN_W
+                                 + max(0, g.sd_m1_w // 2 - g.gate_w // 2)
+                                 ) if needs_left_bus else 0
+        poly_ext_for_bus_right = (g.gc_offset_right + g.gate_m1_w // 2
+                                  + 2 * m1.MIN_S + m1.MIN_W
+                                  + max(0, g.sd_m1_w // 2 - g.gate_w // 2)
+                                  ) if needs_right_bus else 0
+
+        g.poly_ext_left = self._calc_poly_ext(
+            r.GATE_EXT, g.gc_offset_left, g.gate_m1_w, m1.MIN_S,
+            poly_ext_for_li, poly_ext_for_impl_left, g.is_ptype_sd,
+            has_left_contact, poly_ext_for_bus_left)
+        g.poly_ext_right = self._calc_poly_ext(
+            r.GATE_EXT, g.gc_offset_right, g.gate_m1_w, m1.MIN_S,
+            poly_ext_for_li, poly_ext_for_impl_right, g.is_ptype_sd,
+            has_right_contact, poly_ext_for_bus_right)
+
+        # Tap width
         base_tap_width = self._calc_tap_width() if self.tap else 0
-        tap_width = base_tap_width + tap_spacing if self.tap else 0
-        tap_left = self.tap in ('left', 'both')
-        tap_right = self.tap in ('right', 'both')
-        
+        g.tap_width = base_tap_width + (m1.MIN_W + m1.MIN_S) if self.tap else 0
+
+        # When a bus is placed outside the diff on the tap side (no gate contact
+        # on that side), poly_ext must ensure:
+        #   1. diff/tap.3 spacing: poly_ext + TAP_DIFF_SPACE >= DIFF_TAP_S
+        #   2. M1 spacing: bus M1 to tap M1 >= M1.MIN_S
+        if self.tap and g.nf > 1 and base_tap_width > 0:
+            # Compute tap M1 inner edge distance from device edge
+            tap_cx_offset = (r.TAP_MARGIN
+                             + g.tap_width - r.TAP_DIFF_SPACE) // 2
+            tap_m1_hw = (mcon.W + 2 * mcon.ENC_TOP) // 2
+            tap_m1_margin = g.tap_width - tap_cx_offset - tap_m1_hw
+
+            min_ext_diff_tap = r.DIFF_TAP_S - r.TAP_DIFF_SPACE
+            min_ext_m1_tap = 2 * m1.MIN_S + m1.MIN_W - tap_m1_margin
+            min_ext_with_tap = max(min_ext_diff_tap, min_ext_m1_tap)
+
+            # S bus outside diff on left: when no left contact
+            s_bus_outside_left = not has_left_contact
+            # D bus outside diff on right: when no right contact
+            d_bus_outside_right = not has_right_contact
+
+            if g.tap_left and s_bus_outside_left:
+                g.poly_ext_left = max(g.poly_ext_left, min_ext_with_tap)
+            if g.tap_right and d_bus_outside_right:
+                g.poly_ext_right = max(g.poly_ext_right, min_ext_with_tap)
+
         # X positions
-        dev_x0 = tap_width if tap_left else 0
-        diff_x0 = dev_x0 + poly_ext
-        diff_x1 = diff_x0 + gate_w
-        poly_x0 = dev_x0
-        poly_x1 = diff_x1 + poly_ext
-        
-        # Y positions (from bottom: dummy, source, gate, drain, dummy)
-        # Dummy height matches gate contact height for proper stacking overlap
-        dummy_h = max(gate_l, gate_cont_h)
-        
-        y_dummy_bot = 0
-        y_src = dummy_h
-        y_gate = y_src + sd_region
-        y_drn = y_gate + gate_l
-        y_dummy_top = y_drn + sd_region
-        total_height = y_dummy_top + dummy_h
-        
-        # Diffusion spans from source region to drain region
-        diff_y0 = y_src
-        diff_y1 = y_drn + sd_region
-        
-        total_width = poly_x1 + (tap_width if tap_right else 0)
-        
-        # === Draw diffusion ===
-        self.add_rect(self.DIFF_TYPE, diff_x0, diff_y0, diff_x1, diff_y1, net='diff')
-        
-        # === Draw poly gates (active + dummies) ===
+        g.dev_x0 = g.tap_width if g.tap_left else 0
+        g.diff_x0 = g.dev_x0 + g.poly_ext_left
+        g.diff_x1 = g.diff_x0 + g.gate_w
+        g.poly_x0 = g.dev_x0
+        g.poly_x1 = g.diff_x1 + g.poly_ext_right
+
+        # Edge height (above/below diffusion for dummy poly)
+        edge_for_dummy = g.gate_l + g.poly_to_diff
+        g.edge_h = edge_for_dummy
+
+        # Y positions
+        g.y_first_sd = g.edge_h
+        g.total_height = 2 * g.edge_h + (g.nf + 1) * g.sd_region + g.nf * g.gate_l
+        g.diff_y0 = g.y_first_sd
+        g.diff_y1 = g.total_height - g.edge_h
+        g.total_width = g.poly_x1 + (g.tap_width if g.tap_right else 0)
+
+        # Compute S/D and gate Y positions
+        g.sd_cx = (g.diff_x0 + g.diff_x1) // 2
+        g.gate_y_list = []
+        g.src_cy_list = []
+        g.drn_cy_list = []
+
+        for i in range(g.nf):
+            sd_y = g.y_first_sd + i * (g.sd_region + g.gate_l)
+            sd_cy = sd_y + g.sd_region // 2
+            if i % 2 == 0:
+                g.src_cy_list.append(sd_cy)
+            else:
+                g.drn_cy_list.append(sd_cy)
+            g.gate_y_list.append(sd_y + g.sd_region)
+
+        final_sd_y = g.y_first_sd + g.nf * (g.sd_region + g.gate_l)
+        final_sd_cy = final_sd_y + g.sd_region // 2
+        if g.nf % 2 == 0:
+            g.src_cy_list.append(final_sd_cy)
+        else:
+            g.drn_cy_list.append(final_sd_cy)
+
+        # Gate contact X positions
+        g.gc_left_x = g.dev_x0 + g.gc_offset_left
+        g.gc_right_x = g.poly_x1 - g.gc_offset_right
+
+        # Poly stripe X extents: active gates end at contact pad, dummies at GATE_EXT
+        gc_pad_w = 2 * licon.W + licon.S + 2 * licon.ENC_POLY
+        g.gate_poly_x0 = (g.gc_left_x - gc_pad_w // 2
+                          if has_left_contact else g.diff_x0 - r.GATE_EXT)
+        g.gate_poly_x1 = (g.gc_right_x + gc_pad_w // 2
+                          if has_right_contact else g.diff_x1 + r.GATE_EXT)
+        g.dummy_poly_x0 = g.diff_x0 - r.GATE_EXT
+        g.dummy_poly_x1 = g.diff_x1 + r.GATE_EXT
+
+        # S/D contact Y range (used for tap via placement)
+        all_sd_cy = g.src_cy_list + g.drn_cy_list
+        g.sd_cy_min = min(all_sd_cy)
+        g.sd_cy_max = max(all_sd_cy)
+
+        return g
+
+    @staticmethod
+    def _calc_poly_ext(ext_min, gc_offset, gate_m1_w, m1_min_s,
+                       ext_for_li, ext_for_impl, is_ptype, has_contact,
+                       ext_for_bus=0):
+        """Compute poly extension for one side."""
+        if not has_contact:
+            return ext_min
+        ext = max(ext_min, gc_offset + gate_m1_w // 2 + m1_min_s,
+                  ext_for_li, ext_for_bus)
+        if is_ptype:
+            ext = max(ext, ext_for_impl)
+        return ext
+
+    # --- Drawing methods ---
+
+    def _draw_diffusion(self, g):
+        self.add_rect(self.DIFF_TYPE, g.diff_x0, g.diff_y0, g.diff_x1, g.diff_y1, net='diff')
+
+    def _draw_poly(self, g):
+        self._draw_poly_stripes(g)
+
+    def _draw_poly_stripes(self, g):
+        """Draw dummy and active poly gates as horizontal stripes."""
         # Bottom dummy
-        self.add_rect(POLY, poly_x0, y_dummy_bot, poly_x1, y_dummy_bot + dummy_h)
-        # Active gate
-        self.add_rect(POLY, poly_x0, y_gate, poly_x1, y_gate + gate_l, net='G')
+        bot_y = (g.edge_h - g.poly_to_diff - g.gate_l) // 2
+        g.dummy_bot = self.add_rect(POLY, g.gate_poly_x0, bot_y,
+                                    g.gate_poly_x1, bot_y + g.gate_l, net='DBOT')
+        # Active gates
+        for gy in g.gate_y_list:
+            self.add_rect(POLY, g.gate_poly_x0, gy,
+                          g.gate_poly_x1, gy + g.gate_l, net='G')
         # Top dummy
-        self.add_rect(POLY, poly_x0, y_dummy_top, poly_x1, y_dummy_top + dummy_h)
-        
-        # === Draw diffusion implant ===
-        impl_ext = 125
+        top_base = g.total_height - g.edge_h
+        top_y = top_base + (g.edge_h + g.poly_to_diff - g.gate_l) // 2
+        g.dummy_top = self.add_rect(POLY, g.gate_poly_x0, top_y,
+                                    g.gate_poly_x1, top_y + g.gate_l, net='DTOP')
+
+    def _draw_implants(self, g):
         self.add_rect(self.DIFF_IMPLANT,
-                      diff_x0 - impl_ext, diff_y0 - impl_ext,
-                      diff_x1 + impl_ext, diff_y1 + impl_ext)
-        
-        # === Draw S/D contacts ===
-        sd_cx = (diff_x0 + diff_x1) // 2
-        src_cy = y_src + sd_region // 2
-        drn_cy = y_drn + sd_region // 2
-        
-        self._draw_sd_contact(sd_cx, src_cy, gate_w, 'S')
-        self._draw_sd_contact(sd_cx, drn_cy, gate_w, 'D')
-        
-        # === Draw gate contacts (at outer ends of poly, leaving room for routing) ===
-        gate_cy = y_gate + gate_l // 2
-        # Gate contact center at half the gate M1 width from poly edge
-        gc_offset = gate_m1_w // 2  # Contact center from poly edge
+                      g.diff_x0 - g.impl_enc, g.diff_y0 - g.impl_enc,
+                      g.diff_x1 + g.impl_enc, g.diff_y1 + g.impl_enc)
+
+    def _draw_sd_contacts(self, g):
+        """Draw S/D contact stacks, storing all M1 shapes for ports."""
+        g.src_m1_list = []
+        g.drn_m1_list = []
+        for cy in g.src_cy_list:
+            shape = self._draw_sd_contact(g.sd_cx, cy, g.gate_w, 'S')
+            g.src_m1_list.append(shape)
+        for cy in g.drn_cy_list:
+            shape = self._draw_sd_contact(g.sd_cx, cy, g.gate_w, 'D')
+            g.drn_m1_list.append(shape)
+
+    def _draw_gate_contacts(self, g):
+        """Draw gate contact stacks at each gate level."""
+        g.gate_m1_list = []
         if self.poly_contact in ('left', 'both'):
-            gc_cx = dev_x0 + gc_offset
-            self._draw_gate_contact(gc_cx, gate_cy, 'G')
+            for gy in g.gate_y_list:
+                shape = self._draw_gate_contact(g.gc_left_x, gy + g.gate_l // 2, 'G')
+                g.gate_m1_list.append(shape)
         if self.poly_contact in ('right', 'both'):
-            gc_cx = poly_x1 - gc_offset
-            self._draw_gate_contact(gc_cx, gate_cy, 'G')
-        
-        # === Draw tap ===
-        if tap_left:
-            self._draw_tap(0, 0, tap_width, total_height, 'left')
-        if tap_right:
-            self._draw_tap(total_width - tap_width, 0, tap_width, total_height, 'right')
-        
-        # === Draw well (NWELL for PFET) ===
+            for gy in g.gate_y_list:
+                shape = self._draw_gate_contact(g.gc_right_x, gy + g.gate_l // 2, 'G')
+                g.gate_m1_list.append(shape)
+
+    def _draw_m1_routing(self, g):
+        """Draw M1 bus routing for multi-finger S/D and gate connections.
+
+        S bus is placed on the gate contact side (same side as tap by default).
+        D bus is placed on the opposite side, facing outward.
+        For poly_contact='both': NFET S bus left, PFET S bus right.
+        """
+        m1_r = self.rules.M1
+        m1_w = m1_r.MIN_W
+        g.src_bus_m1 = None
+        g.drn_bus_m1 = None
+        g.gate_bus_m1 = None
+
+        # Bus X positions per side
+        has_left_gc = self.poly_contact in ('left', 'both')
+        has_right_gc = self.poly_contact in ('right', 'both')
+        left_bus_x = (g.gc_left_x + g.gate_m1_w // 2 + m1_r.MIN_S + m1_w // 2
+                      if has_left_gc
+                      else g.diff_x0 - m1_r.MIN_S - m1_w // 2)
+        right_bus_x = (g.gc_right_x - g.gate_m1_w // 2 - m1_r.MIN_S - m1_w // 2
+                       if has_right_gc
+                       else g.diff_x1 + m1_r.MIN_S + m1_w // 2)
+
+        # S bus on gate contact side; for 'both', use default tap side
+        if self.poly_contact == 'both':
+            s_bus_left = (self.DEFAULT_TAP == 'left')
+        else:
+            s_bus_left = (self.poly_contact == 'left')
+
+        if s_bus_left:
+            s_bus_x, d_bus_x = left_bus_x, right_bus_x
+        else:
+            s_bus_x, d_bus_x = right_bus_x, left_bus_x
+
+        if len(g.src_cy_list) > 1:
+            y0 = min(g.src_cy_list) - m1_w // 2
+            y1 = max(g.src_cy_list) + m1_w // 2
+            g.src_bus_m1 = self.add_rect(M1, s_bus_x - m1_w // 2, y0,
+                                         s_bus_x + m1_w // 2, y1, net='S')
+            for cy in g.src_cy_list:
+                self.route((g.sd_cx, cy), (s_bus_x, cy), M1, m1_w, how='-', net='S')
+
+        if len(g.drn_cy_list) > 1:
+            y0 = min(g.drn_cy_list) - m1_w // 2
+            y1 = max(g.drn_cy_list) + m1_w // 2
+            g.drn_bus_m1 = self.add_rect(M1, d_bus_x - m1_w // 2, y0,
+                                         d_bus_x + m1_w // 2, y1, net='D')
+            for cy in g.drn_cy_list:
+                self.route((g.sd_cx, cy), (d_bus_x, cy), M1, m1_w, how='-', net='D')
+
+        # Gate M1 strap (multi-finger: connects all gate contacts)
+        if g.nf > 1:
+            gate_cy_list = [gy + g.gate_l // 2 for gy in g.gate_y_list]
+            if has_left_gc:
+                y0 = min(gate_cy_list) - g.gate_m1_h // 2
+                y1 = max(gate_cy_list) + g.gate_m1_h // 2
+                g.gate_bus_m1 = self.add_rect(
+                    M1, g.gc_left_x - g.gate_m1_w // 2, y0,
+                    g.gc_left_x + g.gate_m1_w // 2, y1, net='G')
+            if has_right_gc:
+                y0 = min(gate_cy_list) - g.gate_m1_h // 2
+                y1 = max(gate_cy_list) + g.gate_m1_h // 2
+                shape = self.add_rect(
+                    M1, g.gc_right_x - g.gate_m1_w // 2, y0,
+                    g.gc_right_x + g.gate_m1_w // 2, y1, net='G')
+                if g.gate_bus_m1 is None:
+                    g.gate_bus_m1 = shape
+
+    def _draw_taps(self, g):
+        g.tap_m1 = None
+        if g.tap_left:
+            g.tap_m1 = self._draw_tap(0, 0, g.tap_width, g.total_height,
+                                      'left', g.sd_cy_min, g.sd_cy_max)
+        if g.tap_right:
+            shape = self._draw_tap(g.total_width - g.tap_width, 0,
+                                   g.tap_width, g.total_height,
+                                   'right', g.sd_cy_min, g.sd_cy_max)
+            if g.tap_m1 is None:
+                g.tap_m1 = shape
+
+    def _draw_well(self, g):
         if self.SUB_TYPE is not None:
-            well_enc = r.SUB_ENC_DIFF
+            enc = self.rules.MOS.SUB_ENC_DIFF
             self.add_rect(self.SUB_TYPE,
-                          -well_enc, -well_enc,
-                          total_width + well_enc, total_height + well_enc)
-        
-        # === Add ports ===
-        self.add_port('S', M1, sd_cx, src_cy)
-        self.add_port('D', M1, sd_cx, drn_cy)
-        if self.poly_contact in ('left', 'both'):
-            self.add_port('G', M1, dev_x0 + gc_offset, gate_cy)
-        elif self.poly_contact == 'right':
-            self.add_port('G', M1, poly_x1 - gc_offset, gate_cy)
-        
-        if tap_left:
-            self.add_port('B', M1, base_tap_width // 2, total_height // 2)
-        elif tap_right:
-            self.add_port('B', M1, total_width - base_tap_width // 2, total_height // 2)
-    
-    def _calc_tap_width(self) -> int:
-        """Calculate tap region width."""
+                          -enc, -enc,
+                          g.total_width + enc, g.total_height + enc)
+
+    def _add_ports(self, g):
+        # Aggregate ports (first contact as default routing target)
+        if g.src_m1_list:
+            self.add_port('S', shape=g.src_m1_list[0])
+        if g.drn_m1_list:
+            self.add_port('D', shape=g.drn_m1_list[0])
+        if g.gate_m1_list:
+            self.add_port('G', shape=g.gate_m1_list[0])
+        if g.tap_m1 is not None:
+            self.add_port('B', shape=g.tap_m1)
+
+        # Indexed ports (per-finger routing targets)
+        for i, shape in enumerate(g.src_m1_list):
+            self.add_port(f'S{i}', shape=shape)
+        for i, shape in enumerate(g.drn_m1_list):
+            self.add_port(f'D{i}', shape=shape)
+        for i, shape in enumerate(g.gate_m1_list):
+            self.add_port(f'G{i}', shape=shape)
+
+        # Dummy poly ports
+        self.add_port('DBOT', shape=g.dummy_bot)
+        self.add_port('DTOP', shape=g.dummy_top)
+
+        # Bus ports (multi-finger only)
+        if g.src_bus_m1 is not None:
+            self.add_port('SBUS', shape=g.src_bus_m1)
+        if g.drn_bus_m1 is not None:
+            self.add_port('DBUS', shape=g.drn_bus_m1)
+        if g.gate_bus_m1 is not None:
+            self.add_port('GBUS', shape=g.gate_bus_m1)
+
+    # --- Component helpers ---
+
+    def _calc_tap_width(self):
+        """Calculate base tap region width (excluding M1 routing space)."""
         r = self.rules.MOS
-        contact_size = r.CONTACT_SIZE
-        # Tap needs: enclosure + contact + enclosure + spacing to diff
-        tap_enc = 60  # Tap enclosure of contact
-        tap_to_diff = 200  # Spacing from tap to diffusion
-        return tap_enc + contact_size + tap_enc + tap_to_diff
-    
-    def _calc_via_count(self, available: int, via_size: int, via_space: int) -> int:
+        licon = self.rules.LICON
+        return (r.TAP_MARGIN + 2 * licon.ENC_DIFF
+                + r.CONTACT_SIZE + r.TAP_DIFF_SPACE)
+
+    def _calc_via_count(self, available, via_size, via_space):
         """Calculate number of vias that fit in available space."""
         if available < via_size:
             return 0
         return max(1, (available + via_space) // (via_size + via_space))
 
-    def _draw_sd_contact(self, cx: int, cy: int, width: int, net: str):
-        """
-        Draw source/drain contact stack: LICON -> LI -> MCON -> M1.
-        
-        Via count scales with width. LI and M1 sized to enclose vias only.
-        """
+    def _draw_sd_contact(self, cx, cy, width, net):
+        """Draw source/drain contact stack: LICON -> LI -> MCON -> M1."""
         licon = self.rules.LICON
         mcon = self.rules.MCON
-        
         cs = licon.W
         cs_space = licon.S
         li_enc = licon.ENC_LI
         m1_enc = mcon.ENC_TOP
-        
-        # Calculate number of LICON/MCON based on width
-        # Available width for vias (with enclosure margin)
+
         avail = width - 2 * licon.ENC_DIFF
         n_via = self._calc_via_count(avail, cs, cs_space)
-        
-        # Total width of via array
         via_array_w = n_via * cs + (n_via - 1) * cs_space if n_via > 1 else cs
-        
-        # LI and M1 dimensions (just enclose the vias)
+
         li_w = via_array_w + 2 * li_enc
         li_h = cs + 2 * li_enc
-        m1_w = via_array_w + 2 * m1_enc
-        m1_h = cs + 2 * m1_enc
-        
-        # Draw LICON array
+
+        # LICON array
         via_x0 = cx - via_array_w // 2
         for i in range(n_via):
             vx = via_x0 + i * (cs + cs_space)
             self.add_rect(LICON, vx, cy - cs // 2, vx + cs, cy + cs // 2, net=net)
-        
+
         # LI
         self.add_rect(LI, cx - li_w // 2, cy - li_h // 2,
                       cx + li_w // 2, cy + li_h // 2, net=net)
-        
-        # MCON array (same positions as LICON)
+
+        # MCON array
         mcon_size = mcon.W
         mcon_space = mcon.S
         n_mcon = self._calc_via_count(via_array_w, mcon_size, mcon_space)
         mcon_array_w = n_mcon * mcon_size + (n_mcon - 1) * mcon_space if n_mcon > 1 else mcon_size
-        
+
         mcon_x0 = cx - mcon_array_w // 2
         for i in range(n_mcon):
             mx = mcon_x0 + i * (mcon_size + mcon_space)
-            self.add_rect(MCON, mx, cy - mcon_size // 2, mx + mcon_size, cy + mcon_size // 2, net=net)
-        
-        # M1
-        self.add_rect(M1, cx - m1_w // 2, cy - m1_h // 2,
-                      cx + m1_w // 2, cy + m1_h // 2, net=net)
+            self.add_rect(MCON, mx, cy - mcon_size // 2,
+                          mx + mcon_size, cy + mcon_size // 2, net=net)
 
-    def _draw_gate_contact(self, cx: int, cy: int, net: str):
-        """
-        Draw gate contact at end of poly with M1 access.
-        
-        Stack: POLY -> 2x LICON (horizontal) -> LI -> 2x MCON (horizontal) -> M1
-        """
+        # M1 (encloses MCON array, not LICON array)
+        m1_w = mcon_array_w + 2 * m1_enc
+        m1_h = mcon_size + 2 * m1_enc
+        return self.add_rect(M1, cx - m1_w // 2, cy - m1_h // 2,
+                             cx + m1_w // 2, cy + m1_h // 2, net=net)
+
+    def _draw_gate_contact(self, cx, cy, net):
+        """Draw gate contact: POLY -> 2x LICON -> LI -> 2x MCON -> M1 + NPC."""
         licon = self.rules.LICON
         mcon = self.rules.MCON
-        
-        licon_size = licon.W  # 170
-        licon_space = licon.S  # 170
+        npc = self.rules.NPC
+
+        licon_size = licon.W
+        licon_space = licon.S
         li_enc = licon.ENC_LI
         m1_enc = mcon.ENC_TOP
         poly_enc = licon.ENC_POLY
-        mcon_size = mcon.W  # 170
-        mcon_space = mcon.S  # 190
-        
-        # 2 LICONs arranged horizontally
+        mcon_size = mcon.W
+        mcon_space = mcon.S
+
         n_via = 2
-        licon_array_w = n_via * licon_size + (n_via - 1) * licon_space  # 510nm
-        
-        # Poly extension to cover LICONs (horizontal)
+        licon_array_w = n_via * licon_size + (n_via - 1) * licon_space
+
+        # Poly pad
         poly_w = licon_array_w + 2 * poly_enc
         poly_h = licon_size + 2 * poly_enc
         self.add_rect(POLY, cx - poly_w // 2, cy - poly_h // 2,
                       cx + poly_w // 2, cy + poly_h // 2, net=net)
-        
-        # Draw 2 LICONs (horizontal row)
+
+        # LICONs
         licon_x0 = cx - licon_array_w // 2
         for i in range(n_via):
             vx = licon_x0 + i * (licon_size + licon_space)
-            self.add_rect(LICON, vx, cy - licon_size // 2, vx + licon_size, cy + licon_size // 2, net=net)
-        
-        # LI (encloses LICONs)
+            self.add_rect(LICON, vx, cy - licon_size // 2,
+                          vx + licon_size, cy + licon_size // 2, net=net)
+
+        # LI
         li_w = licon_array_w + 2 * li_enc
         li_h = licon_size + 2 * li_enc
         self.add_rect(LI, cx - li_w // 2, cy - li_h // 2,
                       cx + li_w // 2, cy + li_h // 2, net=net)
-        
-        # 2 MCONs arranged horizontally
-        mcon_array_w = n_via * mcon_size + (n_via - 1) * mcon_space  # 530nm
+
+        # MCONs
+        mcon_array_w = n_via * mcon_size + (n_via - 1) * mcon_space
         mcon_x0 = cx - mcon_array_w // 2
         for i in range(n_via):
             mx = mcon_x0 + i * (mcon_size + mcon_space)
-            self.add_rect(MCON, mx, cy - mcon_size // 2, mx + mcon_size, cy + mcon_size // 2, net=net)
-        
-        # M1 (encloses MCONs)
+            self.add_rect(MCON, mx, cy - mcon_size // 2,
+                          mx + mcon_size, cy + mcon_size // 2, net=net)
+
+        # M1
         m1_w = mcon_array_w + 2 * m1_enc
         m1_h = mcon_size + 2 * m1_enc
-        self.add_rect(M1, cx - m1_w // 2, cy - m1_h // 2,
-                      cx + m1_w // 2, cy + m1_h // 2, net=net)
-        
-        # NPC (enclosure around poly contact area)
-        npc_enc = 100
-        self.add_rect(NPC, cx - licon_array_w // 2 - npc_enc, cy - licon_size // 2 - npc_enc,
-                      cx + licon_array_w // 2 + npc_enc, cy + licon_size // 2 + npc_enc)
-    
-    def _draw_tap(self, x0: int, y0: int, width: int, height: int, side: str):
-        """
-        Draw substrate tap region.
-        
-        Args:
-            x0, y0: Lower-left corner of tap region
-            width, height: Tap region size
-            side: 'left' or 'right'
-        """
-        licon = self.rules.LICON
-        cs = licon.W
-        cs_space = licon.S
-        li_enc = licon.ENC_LI
-        tap_enc = 60  # Tap enclosure of contact
-        
-        # Tap diffusion (fill region minus spacing to active diff)
-        tap_margin = 50
-        diff_space = 130  # Space between tap and active diffusion
-        if side == 'left':
-            tap_x0 = x0 + tap_margin
-            tap_x1 = x0 + width - diff_space
-        else:
-            tap_x0 = x0 + diff_space
-            tap_x1 = x0 + width - tap_margin
-        
-        tap_y0 = y0 + tap_margin
-        tap_y1 = y0 + height - tap_margin
-        
-        # TAP layer
-        self.add_rect(self.TAP_TYPE, tap_x0, tap_y0, tap_x1, tap_y1, net='B')
-        
-        # Tap implant
-        impl_ext = 125
-        self.add_rect(self.TAP_IMPLANT,
-                      tap_x0 - impl_ext, tap_y0 - impl_ext,
-                      tap_x1 + impl_ext, tap_y1 + impl_ext)
-        
-        # Via array (vertical column)
-        tap_cx = (tap_x0 + tap_x1) // 2
-        tap_cy = (tap_y0 + tap_y1) // 2
-        
-        # MCON array
-        mcon = self.rules.MCON
-        mcon_size = mcon.W
-        mcon_space = mcon.S
-        mcon_enc = mcon.ENC_TOP
-        
-        # Leave margin at top/bottom for dummy poly overlap when stacking
-        # Margin = dummy height + S/D region to avoid contact overlap
-        licon_size = self.rules.LICON.W
-        poly_enc_cont = self.rules.LICON.ENC_POLY
-        gate_cont_h = licon_size + 2 * poly_enc_cont
-        sd_region = self.rules.MOS.DIFF_EXT
-        via_margin = gate_cont_h + sd_region
-        
-        # Calculate MCON array with margin
-        via_region_y0 = tap_y0 + via_margin
-        via_region_y1 = tap_y1 - via_margin
-        avail_mcon_h = via_region_y1 - via_region_y0 - 2 * mcon_enc
-        n_mcon = max(1, self._calc_via_count(avail_mcon_h, mcon_size, mcon_space))
-        mcon_array_h = n_mcon * mcon_size + (n_mcon - 1) * mcon_space if n_mcon > 1 else mcon_size
-        via_cy = (via_region_y0 + via_region_y1) // 2
-        mcon_y0 = via_cy - mcon_array_h // 2
-        
-        for i in range(n_mcon):
-            my = mcon_y0 + i * (mcon_size + mcon_space)
-            self.add_rect(MCON, tap_cx - mcon_size // 2, my,
-                          tap_cx + mcon_size // 2, my + mcon_size, net='B')
-        
-        # LICON array - match MCON count and region
-        n_licon = n_mcon
-        licon_array_h = n_licon * cs + (n_licon - 1) * cs_space if n_licon > 1 else cs
-        licon_y0 = via_cy - licon_array_h // 2
-        
-        for i in range(n_licon):
-            vy = licon_y0 + i * (cs + cs_space)
-            self.add_rect(LICON, tap_cx - cs // 2, vy, tap_cx + cs // 2, vy + cs, net='B')
-        
-        # LI (covers full tap height for stacking)
-        li_w = cs + 2 * li_enc
-        self.add_rect(LI, tap_cx - li_w // 2, tap_y0,
-                      tap_cx + li_w // 2, tap_y1, net='B')
-        
-        # M1 (covers full tap region for stacking overlap)
-        m1_w = mcon_size + 2 * mcon_enc
-        self.add_rect(M1, tap_cx - m1_w // 2, tap_y0,
-                      tap_cx + m1_w // 2, tap_y1, net='B')
-    
-    def _draw_multi_finger(self):
-        """
-        Draw multi-finger transistor with dummy poly.
-        
-        Structure (from bottom to top):
-            - Bottom dummy poly
-            - Source contact region
-            - Gate 1
-            - Drain contact region
-            - Gate 2
-            - Source contact region
-            - ... (alternating)
-            - Top dummy poly
+        m1_shape = self.add_rect(M1, cx - m1_w // 2, cy - m1_h // 2,
+                                 cx + m1_w // 2, cy + m1_h // 2, net=net)
+
+        # NPC
+        npc_enc = npc.ENC
+        self.add_rect(NPC, cx - licon_array_w // 2 - npc_enc,
+                      cy - licon_size // 2 - npc_enc,
+                      cx + licon_array_w // 2 + npc_enc,
+                      cy + licon_size // 2 + npc_enc)
+
+        return m1_shape
+
+    def _draw_tap(self, x0, y0, width, height, side, via_y0, via_y1):
+        """Draw substrate tap region.
+
+        Vias (LICON/MCON) are placed only within the via_y0..via_y1 range
+        (S/D contact Y range) so that stacked cells don't have via conflicts
+        in the overlap region. TAP diffusion, implant, LI, and M1 span the
+        full tap height.
         """
         r = self.rules.MOS
         licon = self.rules.LICON
         mcon = self.rules.MCON
-        m1 = self.rules.M1
+        impl = self.rules.IMPL
 
-        gate_w = self.to_nm(self.w)
-        gate_l = self.to_nm(self.l)
-        sd_region = r.DIFF_EXT
-        
-        licon_size = licon.W
-        licon_space = licon.S
+        cs = licon.W
+        cs_space = licon.S
+        li_enc = licon.ENC_LI
+        tap_margin = r.TAP_MARGIN
+        tap_diff_space = r.TAP_DIFF_SPACE
+        impl_enc = impl.ENC_DIFF
+
+        if side == 'left':
+            tap_x0 = x0 + tap_margin
+            tap_x1 = x0 + width - tap_diff_space
+        else:
+            tap_x0 = x0 + tap_diff_space
+            tap_x1 = x0 + width - tap_margin
+
+        tap_y0 = y0 + tap_margin
+        tap_y1 = y0 + height - tap_margin
+
+        # TAP diffusion
+        self.add_rect(self.TAP_TYPE, tap_x0, tap_y0, tap_x1, tap_y1, net='B')
+
+        # Tap implant
+        self.add_rect(self.TAP_IMPLANT,
+                      tap_x0 - impl_enc, tap_y0 - impl_enc,
+                      tap_x1 + impl_enc, tap_y1 + impl_enc)
+
+        # Via arrays (vertical column, centered in tap diffusion)
+        # Vias restricted to via_y0..via_y1 (S/D contact Y range)
+        tap_cx = (tap_x0 + tap_x1) // 2
         mcon_size = mcon.W
         mcon_space = mcon.S
-        
-        # Gate contact dimensions: 2 LICONs/MCONs arranged horizontally
-        poly_enc_cont = licon.ENC_POLY
-        licon_array_w = 2 * licon_size + licon_space  # 510nm
-        mcon_array_w = 2 * mcon_size + mcon_space  # 530nm
-        
-        # Gate contact height (single row of vias)
-        gate_cont_h = licon_size + 2 * poly_enc_cont
-        
-        # Gate contact M1 width (2 MCONs + enclosure)
-        gate_m1_w = mcon_array_w + 2 * mcon.ENC_TOP
-        
-        # Gate contact poly width
-        gate_poly_w = licon_array_w + 2 * poly_enc_cont
-        
-        # Poly extension beyond diffusion:
-        # Need space for: gate M1 + S bus routing + spacing to S/D M1
-        s_bus_w = m1.MIN_W
-        poly_ext = gate_m1_w + m1.MIN_S + s_bus_w + m1.MIN_S
-        
-        # Gate contact center offset from poly edge
-        gc_offset = gate_m1_w // 2
-        
-        # Tap dimensions - add spacing for S bus routing
-        tap_spacing = m1.MIN_W + m1.MIN_S
-        base_tap_width = self._calc_tap_width() if self.tap else 0
-        tap_width = base_tap_width + tap_spacing if self.tap else 0
-        tap_left = self.tap in ('left', 'both')
-        tap_right = self.tap in ('right', 'both')
-        
-        # X positions
-        dev_x0 = tap_width if tap_left else 0
-        diff_x0 = dev_x0 + poly_ext
-        diff_x1 = diff_x0 + gate_w
-        poly_x0 = dev_x0
-        poly_x1 = diff_x1 + poly_ext
-        
-        # Y positions - dummy height matches gate contact height for stacking
-        dummy_h = max(gate_l, gate_cont_h)
-        y_dummy_bot = 0
-        y_first_sd = dummy_h  # First S/D region starts after bottom dummy
-        
-        # Total height: dummy + nf*(sd + gate) + sd + dummy
-        # = 2*dummy + (nf+1)*sd + nf*gate
-        total_height = 2 * dummy_h + (self.nf + 1) * sd_region + self.nf * gate_l
-        
-        # Diffusion spans all S/D regions and gates
-        diff_y0 = y_first_sd
-        diff_y1 = total_height - dummy_h
-        
-        total_width = poly_x1 + (tap_width if tap_right else 0)
-        
-        # === Draw diffusion ===
-        self.add_rect(self.DIFF_TYPE, diff_x0, diff_y0, diff_x1, diff_y1, net='diff')
-        
-        # === Draw diffusion implant ===
-        impl_ext = 125
-        self.add_rect(self.DIFF_IMPLANT,
-                      diff_x0 - impl_ext, diff_y0 - impl_ext,
-                      diff_x1 + impl_ext, diff_y1 + impl_ext)
-        
-        # === Draw dummy poly (bottom and top) ===
-        self.add_rect(POLY, poly_x0, y_dummy_bot, poly_x1, y_dummy_bot + dummy_h)
-        y_dummy_top = total_height - dummy_h
-        self.add_rect(POLY, poly_x0, y_dummy_top, poly_x1, y_dummy_top + dummy_h)
-        
-        # === Draw active gates and contacts ===
-        sd_cx = (diff_x0 + diff_x1) // 2
-        gate_cy_list = []
-        src_cy_list = []
-        drn_cy_list = []
-        
-        for i in range(self.nf):
-            # S/D region before this gate
-            sd_y = y_first_sd + i * (sd_region + gate_l)
-            sd_cy = sd_y + sd_region // 2
-            if i % 2 == 0:
-                src_cy_list.append(sd_cy)
-                self._draw_sd_contact(sd_cx, sd_cy, gate_w, 'S')
-            else:
-                drn_cy_list.append(sd_cy)
-                self._draw_sd_contact(sd_cx, sd_cy, gate_w, 'D')
-            
-            # Gate
-            gate_y = sd_y + sd_region
-            self.add_rect(POLY, poly_x0, gate_y, poly_x1, gate_y + gate_l, net='G')
-            gate_cy_list.append(gate_y + gate_l // 2)
-        
-        # Final S/D region after last gate
-        final_sd_y = y_first_sd + self.nf * (sd_region + gate_l)
-        final_sd_cy = final_sd_y + sd_region // 2
-        if self.nf % 2 == 0:
-            src_cy_list.append(final_sd_cy)
-            self._draw_sd_contact(sd_cx, final_sd_cy, gate_w, 'S')
-        else:
-            drn_cy_list.append(final_sd_cy)
-            self._draw_sd_contact(sd_cx, final_sd_cy, gate_w, 'D')
-        
-        # === Connect S/D regions using M1 vertical straps ===
-        # S bus between tap and gate contact, D bus between diffusion and right gate contact
-        m1_w = m1.MIN_W
-        
-        # Gate contact X positions
-        gc_left_x = dev_x0 + gc_offset
-        gc_right_x = poly_x1 - gc_offset
-        
-        # S bus: between tap and left gate contact (or at left edge if no tap)
-        # D bus: between diffusion and right gate contact
-        s_bus_x = gc_left_x + gate_m1_w // 2 + m1.MIN_S + m1_w // 2
-        d_bus_x = diff_x1 + m1.MIN_S + m1_w // 2
-        
-        if len(src_cy_list) > 1:
-            # Vertical S bus
-            s_y0 = min(src_cy_list) - m1_w // 2
-            s_y1 = max(src_cy_list) + m1_w // 2
-            self.add_rect(M1, s_bus_x - m1_w // 2, s_y0, s_bus_x + m1_w // 2, s_y1, net='S')
-            # Horizontal M1 routes from each S contact to the bus
-            for src_cy in src_cy_list:
-                self.route((sd_cx, src_cy), (s_bus_x, src_cy), M1, m1_w, how='-', net='S')
-        
-        if len(drn_cy_list) > 1:
-            # Vertical D bus
-            d_y0 = min(drn_cy_list) - m1_w // 2
-            d_y1 = max(drn_cy_list) + m1_w // 2
-            self.add_rect(M1, d_bus_x - m1_w // 2, d_y0, d_bus_x + m1_w // 2, d_y1, net='D')
-            # Horizontal M1 routes from each D contact to the bus
-            for drn_cy in drn_cy_list:
-                self.route((sd_cx, drn_cy), (d_bus_x, drn_cy), M1, m1_w, how='-', net='D')
-        
-        # === Route gate connections using M1 ===
-        # Vertical M1 strap connecting all gate contacts
-        if self.nf > 1:
-            if self.poly_contact in ('left', 'both'):
-                g_y0 = min(gate_cy_list) - gate_m1_w // 2
-                g_y1 = max(gate_cy_list) + gate_m1_w // 2
-                self.add_rect(M1, gc_left_x - gate_m1_w // 2, g_y0,
-                              gc_left_x + gate_m1_w // 2, g_y1, net='G')
-            if self.poly_contact in ('right', 'both'):
-                g_y0 = min(gate_cy_list) - gate_m1_w // 2
-                g_y1 = max(gate_cy_list) + gate_m1_w // 2
-                self.add_rect(M1, gc_right_x - gate_m1_w // 2, g_y0,
-                              gc_right_x + gate_m1_w // 2, g_y1, net='G')
-        
-        # === Draw gate contacts ===
-        if self.poly_contact in ('left', 'both'):
-            for gc_cy in gate_cy_list:
-                self._draw_gate_contact(gc_left_x, gc_cy, 'G')
-        if self.poly_contact in ('right', 'both'):
-            for gc_cy in gate_cy_list:
-                self._draw_gate_contact(gc_right_x, gc_cy, 'G')
-        
-        # === Draw taps ===
-        if tap_left:
-            self._draw_tap(0, 0, tap_width, total_height, 'left')
-        if tap_right:
-            self._draw_tap(total_width - tap_width, 0, tap_width, total_height, 'right')
-        
-        # === Draw well (NWELL for PFET) ===
-        if self.SUB_TYPE is not None:
-            well_enc = r.SUB_ENC_DIFF
-            self.add_rect(self.SUB_TYPE,
-                          -well_enc, -well_enc,
-                          total_width + well_enc, total_height + well_enc)
-        
-        # === Add ports ===
-        # Source at first S region
-        self.add_port('S', M1, sd_cx, src_cy_list[0])
-        # Drain at first D region
-        self.add_port('D', M1, sd_cx, drn_cy_list[0])
-        # Gate (on M1)
-        if self.poly_contact in ('left', 'both'):
-            self.add_port('G', M1, gc_left_x, gate_cy_list[0])
-        elif self.poly_contact == 'right':
-            self.add_port('G', M1, gc_right_x, gate_cy_list[0])
-        # Bulk (on M1)
-        if tap_left:
-            self.add_port('B', M1, base_tap_width // 2, total_height // 2)
-        elif tap_right:
-            self.add_port('B', M1, total_width - base_tap_width // 2, total_height // 2)
+        mcon_enc = mcon.ENC_TOP
+
+        avail_h = (via_y1 - via_y0)
+        n_mcon = max(1, self._calc_via_count(avail_h, mcon_size, mcon_space))
+        mcon_array_h = n_mcon * mcon_size + (n_mcon - 1) * mcon_space if n_mcon > 1 else mcon_size
+        via_cy = (via_y0 + via_y1) // 2
+
+        mcon_y0 = via_cy - mcon_array_h // 2
+        for i in range(n_mcon):
+            my = mcon_y0 + i * (mcon_size + mcon_space)
+            self.add_rect(MCON, tap_cx - mcon_size // 2, my,
+                          tap_cx + mcon_size // 2, my + mcon_size, net='B')
+
+        # LICON array (match MCON count)
+        n_licon = n_mcon
+        licon_array_h = n_licon * cs + (n_licon - 1) * cs_space if n_licon > 1 else cs
+        licon_y0 = via_cy - licon_array_h // 2
+        for i in range(n_licon):
+            vy = licon_y0 + i * (cs + cs_space)
+            self.add_rect(LICON, tap_cx - cs // 2, vy,
+                          tap_cx + cs // 2, vy + cs, net='B')
+
+        # LI (full tap height)
+        li_w = cs + 2 * li_enc
+        self.add_rect(LI, tap_cx - li_w // 2, tap_y0,
+                      tap_cx + li_w // 2, tap_y1, net='B')
+
+        # M1 (full tap height)
+        m1_w = mcon_size + 2 * mcon_enc
+        return self.add_rect(M1, tap_cx - m1_w // 2, tap_y0,
+                             tap_cx + m1_w // 2, tap_y1, net='B')
 
 
 class NFET_01V8_Layout(MOSFET_Layout):
@@ -676,11 +654,10 @@ class NFET_01V8_Layout(MOSFET_Layout):
     SUB_TYPE = None
     DEFAULT_TAP = 'left'
 
-    def __init__(self, instance_name: str, parent: SKY130LayoutCell = None,
-                 schematic=None, w: float = 1.0, l: float = 0.15, nf: int = 1,
-                 tap: str = None, poly_contact: str = None):
+    def __init__(self, instance_name, parent, schematic,
+                 tap=None, poly_contact=None):
         super().__init__(instance_name, parent, schematic=schematic,
-                         w=w, l=l, nf=nf, tap=tap, poly_contact=poly_contact,
+                         tap=tap, poly_contact=poly_contact,
                          cell_name='nfet_01v8')
 
 
@@ -694,9 +671,8 @@ class PFET_01V8_Layout(MOSFET_Layout):
     SUB_TYPE = NWELL
     DEFAULT_TAP = 'right'
 
-    def __init__(self, instance_name: str, parent: SKY130LayoutCell = None,
-                 schematic=None, w: float = 1.0, l: float = 0.15, nf: int = 1,
-                 tap: str = None, poly_contact: str = None):
+    def __init__(self, instance_name, parent, schematic,
+                 tap=None, poly_contact=None):
         super().__init__(instance_name, parent, schematic=schematic,
-                         w=w, l=l, nf=nf, tap=tap, poly_contact=poly_contact,
+                         tap=tap, poly_contact=poly_contact,
                          cell_name='pfet_01v8')
