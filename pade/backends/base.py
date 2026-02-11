@@ -100,40 +100,18 @@ class LayoutWriter(ABC):
         pass
 
     def _collect_labels(self, cell: 'LayoutCell') -> list:
-        """Collect LVS labels for a cell.
+        """Collect LVS labels from the cell's pins.
 
-        If the cell has a linked schematic, generates labels on ALL shapes
-        whose net matches a terminal name. Falls back to ports if no
-        schematic is linked.
+        Each Pin maps to a schematic terminal and carries a layer and
+        location.  One label is generated per pin.
 
         Returns:
-            List of (net_name, layer, x0, y0, x1, y1) tuples
+            List of (terminal_name, layer, x0, y0, x1, y1) tuples
         """
-        if cell.schematic is not None:
-            return self._labels_from_schematic(cell)
-        return self._labels_from_ports(cell)
-
-    def _labels_from_schematic(self, cell: 'LayoutCell') -> list:
-        """Generate labels from schematic terminals on all matching shapes.
-
-        Places a label on every shape whose net matches a terminal name.
-        Multiple labels on the same net are fine for all LVS tools.
-        """
-        terminal_names = {t.lower(): t for t in cell.schematic.terminals}
         labels = []
-        for shape in cell.shapes:
-            if shape.net is not None and shape.net.lower() in terminal_names:
-                term_name = terminal_names[shape.net.lower()]
-                b = shape.bounds
-                labels.append((term_name, shape.layer, b[0], b[1], b[2], b[3]))
-        return labels
-
-    def _labels_from_ports(self, cell: 'LayoutCell') -> list:
-        """Fallback: generate labels from ports (for cells without schematic)."""
-        labels = []
-        for port in cell.ports.values():
-            labels.append((port.net, port.layer,
-                           port.x0, port.y0, port.x1, port.y1))
+        for pin in cell.pins.values():
+            b = pin.bounds
+            labels.append((pin.terminal, pin.layer, b[0], b[1], b[2], b[3]))
         return labels
 
 
@@ -143,6 +121,21 @@ class Simulator(ABC):
 
     Each backend implements this to run simulations.
     """
+
+    @abstractmethod
+    def prepare(self, cell: 'Cell', statements: list['Statement'],
+                identifier: str) -> tuple[Path, Path, Path]:
+        """Write netlist and prepare output paths.
+
+        Args:
+            cell: Top-level cell (testbench)
+            statements: Simulation statements
+            identifier: Simulation identifier (creates subdirectory)
+
+        Returns:
+            (netlist_path, output_path, stdout_file)
+        """
+        pass
 
     @abstractmethod
     def simulate(self, cell: 'Cell', statements: list['Statement'],
@@ -156,18 +149,18 @@ class Simulator(ABC):
             identifier: Simulation identifier (creates subdirectory)
 
         Returns:
-            Path to results directory
+            Path to results
         """
         pass
 
     @abstractmethod
-    def run(self, netlist_path: str | Path, output_dir: str | Path, **kwargs) -> bool:
+    def run(self, netlist_path: str | Path, output_path: str | Path, **kwargs) -> bool:
         """
         Run simulation on existing netlist.
 
         Args:
             netlist_path: Path to netlist file
-            output_dir: Directory for outputs
+            output_path: Path to output file/directory
 
         Returns:
             True if successful

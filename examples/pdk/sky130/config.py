@@ -18,6 +18,10 @@ class SKY130Config:
         layout_dir: Directory for GDS layout files
         work_dir: Working directory for tool outputs
         pex_dir: Directory for PEX netlists
+        substrate_net_name: Net name used in schematics for substrate. Magic
+            extracts the bulk node as SUB; LVS replaces SUB with this name in
+            the layout netlist so pin names match. Set to "SUB" to accept
+            Magic's default (no replacement).
 
     Example:
         from pdk.sky130.config import config
@@ -25,7 +29,7 @@ class SKY130Config:
         result = drc.run(layout_cell)
     """
 
-    def __init__(self, pdk_root: str | Path = None):
+    def __init__(self, pdk_root: str | Path = None, substrate_net_name: str = 'AVSS'):
         # Project root is examples/ (parent of pdk/sky130/)
         self.project_root = Path(__file__).parent.parent.parent
         self.pdk_root = Path(
@@ -42,6 +46,9 @@ class SKY130Config:
         self.work_dir = self.project_root / 'work'
         self.pex_dir = self.project_root / 'pex'
         self.sim_data_dir = self.project_root / 'sim_data'
+
+        # LVS: Magic extracts substrate as SUB; replace with this name in layout netlist.
+        self.substrate_net_name = substrate_net_name
 
         # Make all directories on initialization
         self._mkdir()

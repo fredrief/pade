@@ -23,7 +23,7 @@ class GDSWriter(LayoutWriter):
         layer_map: LayerMap for converting generic layers to GDS layer/datatype
         unit: GDS database unit in meters (default 1e-9 = 1nm)
         precision: GDS precision in meters (default 1e-12)
-        pin_texttype: GDS texttype for port labels (default 16, common for LVS)
+        pin_texttype: GDS texttype for pin labels (default 16, common for LVS)
     """
 
     def __init__(self,
@@ -115,7 +115,7 @@ class GDSWriter(LayoutWriter):
             )
             gds_cell.add(ref)
 
-        # Add LVS labels from schematic terminals (or ports as fallback)
+        # Add LVS labels from cell pins (one per schematic terminal)
         for net_name, label_layer, x0, y0, x1, y1 in self._collect_labels(cell):
             gds_layer, _ = self._get_gds_layer(label_layer)
             cx, cy = (x0 + x1) // 2, (y0 + y1) // 2

@@ -1,5 +1,9 @@
 """
 Parallel simulation utilities.
+
+Netlists are written in the main process (avoids pickling Cell objects).
+Only simulator execution is parallelized — the Simulator object is pickled
+to workers, which call its run() method with pre-written netlist paths.
 """
 
 import time
@@ -13,27 +17,27 @@ if TYPE_CHECKING:
     from pade.backends.base import Simulator
 
 
-def _run_single(args: tuple) -> tuple[str, Optional[Path], Optional[str], float]:
-    """
-    Worker function for parallel simulation.
+def _run_sim(args: tuple) -> tuple[str, Optional[str], Optional[str], float]:
+    """Worker: run simulator on a pre-written netlist.
 
     Returns:
-        (identifier, raw output path or None, error message or None, elapsed_time)
+        (identifier, output_path or None, error message or None, elapsed_time)
     """
-    (simulator_class, simulator_kwargs, cell, statements, identifier) = args
+    from pade.logging import set_log_level
+    set_log_level('SILENT')
 
+    simulator, identifier, netlist_path, output_path, stdout_file = args
     start_time = time.time()
 
     try:
-        # Recreate simulator in worker process
-        simulator = simulator_class(**simulator_kwargs)
-
-        # Run simulation using simulator's own method
-        results = simulator.simulate(
-            cell, statements, identifier, show_output=False
+        success = simulator.run(
+            netlist_path, output_path,
+            stdout_file=stdout_file, show_output=False
         )
         elapsed = time.time() - start_time
-        return (identifier, results, None, elapsed)
+        if success:
+            return (identifier, output_path, None, elapsed)
+        return (identifier, None, 'simulation failed', elapsed)
     except Exception as e:
         elapsed = time.time() - start_time
         return (identifier, None, str(e), elapsed)
@@ -47,56 +51,60 @@ def run_parallel(
     """
     Run multiple simulations in parallel.
 
+    Phase 1: Write all netlists in the main process (fast, no pickling of Cells).
+    Phase 2: Run simulator in parallel workers (Simulator object is pickled,
+             only file paths are passed).
+
     Args:
-        simulator: Simulator instance (with output_dir already set)
+        simulator: Simulator instance (any backend)
         simulations: List of (cell, statements, identifier) tuples
         max_workers: Maximum parallel processes
 
     Returns:
-        Dict mapping identifier to raw output path (or None if failed)
+        Dict mapping identifier to output path (or None if failed)
 
     Example:
-        simulator = SpectreSimulator(output_dir='./sim', ...)
         results = run_parallel(
             simulator,
             simulations=[
-                (tb, statements_tt, 'corner_tt'),
-                (tb, statements_ff, 'corner_ff'),
-                (tb, statements_ss, 'corner_ss'),
+                (tb_tt, statements, 'corner_tt'),
+                (tb_ff, statements, 'corner_ff'),
             ],
             max_workers=4,
         )
     """
-    import pade
-
-    # Disable logging for clean output
-    pade.set_log_level('SILENT')
-
-    # Extract simulator kwargs for recreation in workers
-    simulator_class = type(simulator)
-    simulator_kwargs = _get_simulator_kwargs(simulator)
+    from pade.logging import set_log_level
+    set_log_level('SILENT')
 
     num_sims = len(simulations)
     actual_workers = min(max_workers, num_sims)
 
-    print(f'Running {num_sims} simulations with {actual_workers} workers...')
-
-    # Prepare arguments
-    args_list = []
+    # Phase 1: Write netlists in main process
+    sim_configs = []
     for cell, statements, identifier in simulations:
-        args_list.append((
-            simulator_class, simulator_kwargs, cell, statements, identifier
+        netlist_path, output_path, stdout_file = simulator.prepare(
+            cell, statements, identifier
+        )
+        sim_configs.append((
+            simulator, identifier,
+            str(netlist_path), str(output_path), str(stdout_file),
         ))
 
+    print(f'Running {num_sims} simulations with {actual_workers} workers...')
+
+    # Phase 2: Run simulations in parallel
     results = {}
     completed = 0
 
     with ProcessPoolExecutor(max_workers=actual_workers) as executor:
-        futures = {executor.submit(_run_single, args): args[4] for args in args_list}
+        futures = {
+            executor.submit(_run_sim, cfg): cfg[1]
+            for cfg in sim_configs
+        }
 
         for future in as_completed(futures):
-            identifier, result_path, error, elapsed = future.result()
-            results[identifier] = result_path
+            identifier, output_path, error, elapsed = future.result()
+            results[identifier] = Path(output_path) if output_path else None
             completed += 1
 
             if error:
@@ -107,27 +115,6 @@ def run_parallel(
     failed = sum(1 for v in results.values() if v is None)
     print(f'Completed {num_sims - failed}/{num_sims} simulations')
 
-    # Re-enable logging
-    pade.set_log_level('INFO')
+    set_log_level('INFO')
 
     return results
-
-
-def _get_simulator_kwargs(simulator: 'Simulator') -> dict:
-    """
-    Extract kwargs needed to recreate simulator in worker process.
-
-    Each backend's simulator should be reconstructable from these kwargs.
-    """
-    kwargs = {}
-
-    # Common attributes that simulators may have
-    for attr in ['output_dir', 'setup_script', 'command_options', 'format']:
-        if hasattr(simulator, attr):
-            kwargs[attr] = getattr(simulator, attr)
-
-    # Handle nested attributes (like writer.global_nets for Spectre)
-    if hasattr(simulator, 'writer') and hasattr(simulator.writer, 'global_nets'):
-        kwargs['global_nets'] = simulator.writer.global_nets
-
-    return kwargs

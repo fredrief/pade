@@ -84,7 +84,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         self._draw_m1_routing(g)
         self._draw_taps(g)
         self._draw_well(g)
-        self._add_ports(g)
+        self._add_refs(g)
 
     # --- Geometry computation ---
 
@@ -154,20 +154,19 @@ class MOSFET_Layout(SKY130LayoutCell):
         poly_ext_for_impl_right = (g.gc_offset_right + licon_array_w // 2
                                    + licon_to_impl + g.impl_enc)
 
-        # Multi-finger bus routing: gc_M1 | spacing | bus_M1 | spacing | sd_M1
-        # Only applies to the side where the bus sits between gate contact and diffusion
+        # Bus routing clearance: gc_M1 | spacing | bus_M1 | spacing | sd_M1
+        # Always reserve space (even for nf=1) so that gate contact and
+        # tap X positions are consistent across all finger counts.
         has_left_contact = self.poly_contact in ('left', 'both')
         has_right_contact = self.poly_contact in ('right', 'both')
-        needs_left_bus = g.nf > 1 and has_left_contact
-        needs_right_bus = g.nf > 1 and has_right_contact
         poly_ext_for_bus_left = (g.gc_offset_left + g.gate_m1_w // 2
                                  + 2 * m1.MIN_S + m1.MIN_W
                                  + max(0, g.sd_m1_w // 2 - g.gate_w // 2)
-                                 ) if needs_left_bus else 0
+                                 ) if has_left_contact else 0
         poly_ext_for_bus_right = (g.gc_offset_right + g.gate_m1_w // 2
                                   + 2 * m1.MIN_S + m1.MIN_W
                                   + max(0, g.sd_m1_w // 2 - g.gate_w // 2)
-                                  ) if needs_right_bus else 0
+                                  ) if has_right_contact else 0
 
         g.poly_ext_left = self._calc_poly_ext(
             r.GATE_EXT, g.gc_offset_left, g.gate_m1_w, m1.MIN_S,
@@ -186,7 +185,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         # on that side), poly_ext must ensure:
         #   1. diff/tap.3 spacing: poly_ext + TAP_DIFF_SPACE >= DIFF_TAP_S
         #   2. M1 spacing: bus M1 to tap M1 >= M1.MIN_S
-        if self.tap and g.nf > 1 and base_tap_width > 0:
+        if self.tap and base_tap_width > 0:
             # Compute tap M1 inner edge distance from device edge
             tap_cx_offset = (r.TAP_MARGIN
                              + g.tap_width - r.TAP_DIFF_SPACE) // 2
@@ -290,19 +289,19 @@ class MOSFET_Layout(SKY130LayoutCell):
 
     def _draw_poly_stripes(self, g):
         """Draw dummy and active poly gates as horizontal stripes."""
-        # Bottom dummy
+        # Bottom dummy (no net — not electrically connected)
         bot_y = (g.edge_h - g.poly_to_diff - g.gate_l) // 2
         g.dummy_bot = self.add_rect(POLY, g.gate_poly_x0, bot_y,
-                                    g.gate_poly_x1, bot_y + g.gate_l, net='DBOT')
+                                    g.gate_poly_x1, bot_y + g.gate_l)
         # Active gates
         for gy in g.gate_y_list:
             self.add_rect(POLY, g.gate_poly_x0, gy,
                           g.gate_poly_x1, gy + g.gate_l, net='G')
-        # Top dummy
+        # Top dummy (no net — not electrically connected)
         top_base = g.total_height - g.edge_h
         top_y = top_base + (g.edge_h + g.poly_to_diff - g.gate_l) // 2
         g.dummy_top = self.add_rect(POLY, g.gate_poly_x0, top_y,
-                                    g.gate_poly_x1, top_y + g.gate_l, net='DTOP')
+                                    g.gate_poly_x1, top_y + g.gate_l)
 
     def _draw_implants(self, g):
         self.add_rect(self.DIFF_IMPLANT,
@@ -310,7 +309,7 @@ class MOSFET_Layout(SKY130LayoutCell):
                       g.diff_x1 + g.impl_enc, g.diff_y1 + g.impl_enc)
 
     def _draw_sd_contacts(self, g):
-        """Draw S/D contact stacks, storing all M1 shapes for ports."""
+        """Draw S/D contact stacks, storing all M1 shapes for refs."""
         g.src_m1_list = []
         g.drn_m1_list = []
         for cy in g.src_cy_list:
@@ -419,36 +418,36 @@ class MOSFET_Layout(SKY130LayoutCell):
                           -enc, -enc,
                           g.total_width + enc, g.total_height + enc)
 
-    def _add_ports(self, g):
-        # Aggregate ports (first contact as default routing target)
+    def _add_refs(self, g):
+        # Aggregate refs (first contact as default routing target)
         if g.src_m1_list:
-            self.add_port('S', shape=g.src_m1_list[0])
+            self.add_pin('S', g.src_m1_list[0])
         if g.drn_m1_list:
-            self.add_port('D', shape=g.drn_m1_list[0])
+            self.add_pin('D', g.drn_m1_list[0])
         if g.gate_m1_list:
-            self.add_port('G', shape=g.gate_m1_list[0])
+            self.add_pin('G', g.gate_m1_list[0])
         if g.tap_m1 is not None:
-            self.add_port('B', shape=g.tap_m1)
+            self.add_pin('B', g.tap_m1)
 
-        # Indexed ports (per-finger routing targets)
+        # Indexed refs (per-finger routing targets)
         for i, shape in enumerate(g.src_m1_list):
-            self.add_port(f'S{i}', shape=shape)
+            self.add_ref(f'S{i}', shape)
         for i, shape in enumerate(g.drn_m1_list):
-            self.add_port(f'D{i}', shape=shape)
+            self.add_ref(f'D{i}', shape)
         for i, shape in enumerate(g.gate_m1_list):
-            self.add_port(f'G{i}', shape=shape)
+            self.add_ref(f'G{i}', shape)
 
-        # Dummy poly ports
-        self.add_port('DBOT', shape=g.dummy_bot)
-        self.add_port('DTOP', shape=g.dummy_top)
+        # Dummy poly refs
+        self.add_ref('DBOT', g.dummy_bot)
+        self.add_ref('DTOP', g.dummy_top)
 
-        # Bus ports (multi-finger only)
+        # Bus refs (multi-finger only)
         if g.src_bus_m1 is not None:
-            self.add_port('SBUS', shape=g.src_bus_m1)
+            self.add_ref('SBUS', g.src_bus_m1)
         if g.drn_bus_m1 is not None:
-            self.add_port('DBUS', shape=g.drn_bus_m1)
+            self.add_ref('DBUS', g.drn_bus_m1)
         if g.gate_bus_m1 is not None:
-            self.add_port('GBUS', shape=g.gate_bus_m1)
+            self.add_ref('GBUS', g.gate_bus_m1)
 
     # --- Component helpers ---
 

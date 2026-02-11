@@ -36,43 +36,30 @@ class NgspiceSimulator(Simulator):
         self.command_options = command_options or []
         self.writer = SpiceNetlistWriter(global_nets=global_nets, ascii_output=ascii_output)
 
+    def prepare(self, cell: Cell, statements: list[Statement],
+                identifier: str) -> tuple[Path, Path, Path]:
+        """Write netlist and prepare output paths."""
+        sim_dir = self.output_dir / identifier
+        sim_dir.mkdir(parents=True, exist_ok=True)
+        netlist_path = self.writer.write_netlist(cell, sim_dir, statements)
+        logger.info(f'Netlist written to {netlist_path}')
+        raw_file = sim_dir / 'output.raw'
+        stdout_file = sim_dir / 'ngspice.out'
+        return netlist_path, raw_file, stdout_file
+
     def simulate(self,
                  cell: Cell,
                  statements: list[Statement],
                  identifier: str,
                  extra_options: Optional[list[str]] = None,
                  show_output: bool = True) -> Path:
-        """
-        Run NGspice simulation.
-
-        Args:
-            cell: Top-level cell (testbench)
-            statements: List of statements (analyses, options, etc.)
-            identifier: Simulation identifier (creates subdirectory)
-            extra_options: Additional CLI options for this run only
-            show_output: Show live output from ngspice
-
-        Returns:
-            Path to raw output file
-        """
-        sim_dir = self.output_dir / identifier
-        sim_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate netlist
-        netlist_path = self.writer.write_netlist(cell, sim_dir, statements)
-        logger.info(f'Netlist written to {netlist_path}')
-
-        # Run simulation
-        raw_file = sim_dir / 'output.raw'
-        stdout_file = sim_dir / 'ngspice.out'
-
+        """Run NGspice simulation. Returns path to raw output file."""
+        netlist_path, raw_file, stdout_file = self.prepare(cell, statements, identifier)
         success = self.run(netlist_path, raw_file, stdout_file=stdout_file,
                           extra_options=extra_options, show_output=show_output)
-
         if success:
             return raw_file
-        else:
-            raise RuntimeError('NGspice simulation failed')
+        raise RuntimeError('NGspice simulation failed')
 
     def run(self,
             netlist_path: Union[str, Path],

@@ -16,9 +16,13 @@ class Layer:
     Attributes:
         name: Generic layer name (e.g., 'M1', 'POLY', 'DIFF')
         purpose: Layer purpose (e.g., 'drawing', 'pin', 'label')
+        connectivity: Whether this layer carries electrical connectivity.
+            Set to True for conductive layers (metals, poly, diffusion,
+            vias). Defaults to False — PDK code must opt-in.
     """
     name: str
     purpose: str = 'drawing'
+    connectivity: bool = False
 
     def __hash__(self):
         return hash((self.name, self.purpose))
@@ -76,10 +80,12 @@ class Shape:
         geometry: Shapely geometry (Polygon, typically a rectangle)
         layer: Layer this shape is on
         net: Net name for connectivity (optional)
+        source: Instance hierarchy path for provenance (set during flatten)
     """
     geometry: shapely.Geometry
     layer: Layer
     net: Optional[str] = None
+    source: Optional[str] = None
 
     @classmethod
     def rect(cls, layer: Layer, x0: int, y0: int, x1: int, y1: int,
@@ -121,10 +127,15 @@ class Shape:
         return (int(c.x), int(c.y))
 
     def transformed(self, transform: 'Transform') -> 'Shape':
-        """Return a new Shape with transform applied."""
+        """Return a new Shape with transform applied.
+
+        Preserves net, source, and layer.
+        """
         from pade.layout.transform import Transform
         new_geom = transform.apply(self.geometry)
-        return Shape(geometry=new_geom, layer=self.layer, net=self.net)
+        return Shape(geometry=new_geom, layer=self.layer,
+                     net=self.net, source=self.source)
 
     def __repr__(self):
-        return f"Shape({self.layer}, bounds={self.bounds}, net={self.net})"
+        src = f", source='{self.source}'" if self.source else ''
+        return f"Shape({self.layer}, bounds={self.bounds}, net={self.net}{src})"

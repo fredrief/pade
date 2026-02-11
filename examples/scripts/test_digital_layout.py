@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test inverter layout: DRC and LVS."""
+"""Test digital standard cell layouts: DRC and LVS."""
 
 import sys
 from pathlib import Path
@@ -12,8 +12,8 @@ sys.path.insert(0, str(examples_dir))
 from pade.backends.gds.layout_writer import GDSWriter
 from pdk.sky130.config import config
 from pdk.sky130.layers import sky130_layers
-from src.components.digital.schematic import IVX
-from src.components.digital.layout import IVXLayout
+from src.components.digital.schematic import IVX, TGX
+from src.components.digital.layout import IVXLayout, TGXLayout
 from utils.drc import DRC
 from utils.lvs import LVS
 
@@ -43,55 +43,61 @@ def run_lvs(layout, schematic, writer, lvs):
     return result.matched
 
 
-def test_drc():
-    """Test inverter DRC."""
-    print("\n" + "=" * 60)
-    print("DRC: Inverter")
-    print("=" * 60)
-
-    writer = GDSWriter(layer_map=sky130_layers)
-    drc = DRC()
-
-    test_cases = [
+# Each entry: (name, schematic_class, layout_class, test_cases)
+# test_cases: list of (wn, wp, l, nf, description)
+DIGITAL_CELLS = [
+    ('Inverter', IVX, IVXLayout, [
         (1.0, 2.0, 0.15, 1, "wn=1, wp=2, l=0.15, nf=1"),
         (1.0, 2.0, 0.15, 2, "wn=1, wp=2, l=0.15, nf=2"),
         (0.42, 1.0, 0.15, 3, "wn=0.42, wp=1, l=0.15, nf=3"),
         (1.0, 2.0, 0.5, 4, "wn=1, wp=2, l=0.5, nf=4"),
-    ]
+    ]),
+    ('TGate', TGX, TGXLayout, [
+        (1.0, 2.0, 0.15, 1, "wn=1, wp=2, l=0.15, nf=1"),
+        (1.0, 2.0, 0.15, 2, "wn=1, wp=2, l=0.15, nf=2"),
+        (0.42, 1.0, 0.15, 3, "wn=0.42, wp=1, l=0.15, nf=3"),
+        (1.0, 2.0, 0.5, 4, "wn=1, wp=2, l=0.5, nf=4"),
+    ]),
+]
 
+
+def test_drc():
+    """Run DRC for all digital cells."""
+    writer = GDSWriter(layer_map=sky130_layers)
+    drc = DRC()
     all_passed = True
-    for wn, wp, l, nf, desc in test_cases:
-        print(f"\n{desc}:")
-        sch = IVX('inv', wn=wn, wp=wp, l=l, nf=nf)
-        layout = IVXLayout('inv', schematic=sch)
-        if not run_drc(layout, writer, drc):
-            all_passed = False
+
+    for name, sch_cls, lay_cls, cases in DIGITAL_CELLS:
+        print(f"\n{'=' * 60}")
+        print(f"DRC: {name}")
+        print('=' * 60)
+        for wn, wp, l, nf, desc in cases:
+            print(f"\n{desc}:")
+            sch = sch_cls('dut', wn=wn, wp=wp, l=l, nf=nf)
+            layout = lay_cls('dut', schematic=sch)
+            if not run_drc(layout, writer, drc):
+                all_passed = False
+
     return all_passed
 
 
 def test_lvs():
-    """Test inverter LVS."""
-    print("\n" + "=" * 60)
-    print("LVS: Inverter")
-    print("=" * 60)
-
+    """Run LVS for all digital cells."""
     writer = GDSWriter(layer_map=sky130_layers)
     lvs = LVS()
-
-    test_cases = [
-        (1.0, 2.0, 0.15, 1, "wn=1, wp=2, l=0.15, nf=1"),
-        (1.0, 2.0, 0.15, 2, "wn=1, wp=2, l=0.15, nf=2"),
-        (0.42, 1.0, 0.15, 3, "wn=0.42, wp=1, l=0.15, nf=3"),
-        (1.0, 2.0, 0.5, 4, "wn=1, wp=2, l=0.5, nf=4"),
-    ]
-
     all_passed = True
-    for wn, wp, l, nf, desc in test_cases:
-        print(f"\n{desc}:")
-        sch = IVX('inv', wn=wn, wp=wp, l=l, nf=nf)
-        layout = IVXLayout('inv', schematic=sch)
-        if not run_lvs(layout, sch, writer, lvs):
-            all_passed = False
+
+    for name, sch_cls, lay_cls, cases in DIGITAL_CELLS:
+        print(f"\n{'=' * 60}")
+        print(f"LVS: {name}")
+        print('=' * 60)
+        for wn, wp, l, nf, desc in cases:
+            print(f"\n{desc}:")
+            sch = sch_cls('dut', wn=wn, wp=wp, l=l, nf=nf)
+            layout = lay_cls('dut', schematic=sch)
+            if not run_lvs(layout, sch, writer, lvs):
+                all_passed = False
+
     return all_passed
 
 
@@ -101,9 +107,9 @@ if __name__ == '__main__':
         'LVS': test_lvs(),
     }
 
-    print("\n" + "=" * 60)
+    print(f"\n{'=' * 60}")
     print("Summary")
-    print("=" * 60)
+    print('=' * 60)
     for name, passed in results.items():
         print(f"  {name}: {'PASS' if passed else 'FAIL'}")
 

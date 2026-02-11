@@ -48,8 +48,8 @@ class CapMimLayout(SKY130LayoutCell):
                             m4_enc, w, h, net='TOP')
         top = self.add_rect(M4, 0, 0, w, h, net='TOP')
 
-        self.add_port('TOP', shape=top)
-        self.add_port('BOT', shape=bot)
+        self.add_pin('TOP', top)
+        self.add_pin('BOT', bot)
 
     def _draw_m4_cap(self, w: int, h: int):
         """Draw M4/M5 capacitor (CAPM2 layer)."""
@@ -62,8 +62,8 @@ class CapMimLayout(SKY130LayoutCell):
                             m5_enc, w, h, net='TOP')
         top = self.add_rect(M5, 0, 0, w, h, net='TOP')
 
-        self.add_port('TOP', shape=top)
-        self.add_port('BOT', shape=bot)
+        self.add_pin('TOP', top)
+        self.add_pin('BOT', bot)
 
     def _add_via_array(self, layer, via_w: int, via_s: int, margin: int,
                        cap_w: int, cap_h: int, net: str):

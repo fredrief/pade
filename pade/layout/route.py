@@ -18,7 +18,8 @@ class Route:
     """
     
     def __init__(self, points: List[Tuple[int, int]], layer: 'Layer',
-                 width: int, net: Optional[str] = None):
+                 width: int, net: Optional[str] = None,
+                 end_style: str = 'extend'):
         """
         Create a route.
         
@@ -27,14 +28,22 @@ class Route:
             layer: Layer for all segments
             width: Segment width in nm
             net: Optional net name for connectivity
+            end_style: Segment endpoint handling:
+                ``'extend'`` — each segment overshoots its endpoints
+                by ``width/2``, filling corners and route ends (default).
+                ``'flush'`` — segments end exactly at the waypoint
+                coordinates.
         """
         if len(points) < 2:
             raise ValueError("Route requires at least 2 points")
+        if end_style not in ('extend', 'flush'):
+            raise ValueError(f"end_style must be 'extend' or 'flush', got '{end_style}'")
         
         self.points = points
         self.layer = layer
         self.width = width
         self.net = net
+        self.end_style = end_style
     
     def draw(self, cell: 'LayoutCell') -> 'Route':
         """
@@ -43,6 +52,7 @@ class Route:
         Returns self for chaining.
         """
         hw = self.width // 2  # half width
+        ext = hw if self.end_style == 'extend' else 0
         
         for i in range(len(self.points) - 1):
             x0, y0 = self.points[i]
@@ -51,13 +61,13 @@ class Route:
             # Determine segment orientation
             if y0 == y1:
                 # Horizontal segment
-                left = min(x0, x1)
-                right = max(x0, x1)
+                left = min(x0, x1) - ext
+                right = max(x0, x1) + ext
                 cell.add_rect(self.layer, left, y0 - hw, right, y0 + hw, net=self.net)
             elif x0 == x1:
                 # Vertical segment
-                bottom = min(y0, y1)
-                top = max(y0, y1)
+                bottom = min(y0, y1) - ext
+                top = max(y0, y1) + ext
                 cell.add_rect(self.layer, x0 - hw, bottom, x0 + hw, top, net=self.net)
             else:
                 raise ValueError(f"Diagonal segments not supported: ({x0},{y0}) to ({x1},{y1})")

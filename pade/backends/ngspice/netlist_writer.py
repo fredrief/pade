@@ -98,7 +98,6 @@ class SpiceNetlistWriter(NetlistWriter):
                 if isinstance(s, Include):
                     include_stmts.append(s)
                 elif s.raw and s.raw.strip().lower().startswith(('.lib', '.include')):
-                    # Raw statements that are includes go at the top
                     include_stmts.append(s)
                 else:
                     other_stmts.append(s)
@@ -112,12 +111,12 @@ class SpiceNetlistWriter(NetlistWriter):
         if include_stmts:
             lines.append('')
 
-        # Inline external subcircuit definitions (from NetlistCell source files)
-        external_paths = self._get_external_subckt_paths(cell)
-        if external_paths:
+        # NetlistCell definitions (one per unique param set, encoded names)
+        netlist_defs = self._get_netlist_cell_definitions(cell)
+        if netlist_defs:
             lines.append('* External subcircuit definitions')
-            for path in external_paths:
-                lines.append(self._inline_subckt_file(path))
+            for nc in netlist_defs:
+                lines.append(self._format_subckt(nc))
             lines.append('')
 
         for subckt in self._get_subckt_definitions(cell):
@@ -264,10 +263,39 @@ class SpiceNetlistWriter(NetlistWriter):
         return cell.cell_name in SPICE_PRIMITIVES
 
     def _get_effective_cell_name(self, cell: Cell) -> str:
-        """Get cell name, using layout's encoded name when layout is attached."""
-        if not self._is_primitive(cell) and cell.layout_cell is not None:
+        """Get cell name with parameter encoding for unique identification.
+
+        Priority: layout name (includes layout_params) > encoded params > base name.
+        Parameters are always baked into the name; instance lines never carry params.
+        """
+        if self._is_primitive(cell):
+            return cell.cell_name
+        if cell.layout_cell is not None:
             return cell.layout_cell.cell_name
+        if cell.parameters:
+            return self._encode_cell_name(cell)
         return cell.cell_name
+
+    def _encode_cell_name(self, cell: Cell) -> str:
+        """Encode cell parameters into name for unique subcircuit identification.
+
+        Uses same encoding as LayoutCell._generate_cell_name for consistency.
+        """
+        parts = [cell.cell_name]
+        for name, param in cell.parameters.items():
+            parts.append(self._encode_param(name, param.value))
+        return '_'.join(parts)
+
+    def _encode_param(self, name: str, value) -> str:
+        """Encode a parameter as NAMEVALUE string."""
+        name_str = name.upper()
+        if isinstance(value, float):
+            val_str = f'{value:g}'.replace('.', 'p').replace('-', 'm')
+        elif isinstance(value, str):
+            val_str = value.replace('.', 'p').replace('-', 'm').upper()
+        else:
+            val_str = str(value)
+        return f'{name_str}{val_str}'
 
     def _get_subckt_definitions(self, cell: Cell) -> list[Cell]:
         """Get list of cells that need subckt definitions (excludes NetlistCells)."""
@@ -305,35 +333,8 @@ class SpiceNetlistWriter(NetlistWriter):
         collect(cell)
         return definitions
 
-    def _get_external_subckt_paths(self, cell: Cell) -> set[str]:
-        """Collect unique source paths from all external NetlistCell instances."""
-        paths: set[str] = set()
-
-        def collect(c: Cell) -> None:
-            for subcell in c.get_subcells():
-                if _is_netlist_cell(subcell):
-                    paths.add(str(subcell.source_path))
-                else:
-                    collect(subcell)
-
-        collect(cell)
-        return paths
-
-    def _inline_subckt_file(self, path: str) -> str:
-        """Read and return subcircuit file content for inlining."""
-        content = Path(path).read_text()
-        # Strip comments at the start but keep the subcircuit definition
-        lines = []
-        for line in content.split('\n'):
-            lines.append(line)
-        return '\n'.join(lines).strip()
-
     def _format_subckt(self, cell: Cell) -> str:
-        """Format subcircuit definition.
-        
-        For NetlistCells: inlines source file with cell name and parameter substitution.
-        For regular Cells: generates from Cell structure.
-        """
+        """Format subcircuit definition (NetlistCell: inline source with substitutions; else from Cell)."""
         if _is_netlist_cell(cell):
             return self._format_netlist_cell_subckt(cell)
         
@@ -350,30 +351,18 @@ class SpiceNetlistWriter(NetlistWriter):
         return '\n'.join(lines)
 
     def _format_netlist_cell_subckt(self, cell: Cell) -> str:
-        """Format NetlistCell by inlining source with substitutions.
-        
-        - Renames cell to effective_cell_name (includes layout params if attached)
-        - Removes .param lines (parameters baked into cell name)
-        - Substitutes {param} references with actual values
-        """
+        """Inline NetlistCell source: eff_name for .subckt/.ends, drop .param and comments, substitute {param}."""
         import re
         
         orig_name = cell.cell_name
         eff_name = self._get_effective_cell_name(cell)
         content = Path(cell.source_path).read_text()
-        
-        # Build parameter substitution map
         param_values = {name: p.value for name, p in cell.parameters.items()}
-        
         result_lines = []
         for line in content.split('\n'):
             stripped = line.strip().lower()
-            
-            # Skip .param lines (parameters now baked into name)
-            if stripped.startswith('.param'):
+            if stripped.startswith('.param') or stripped.startswith('*'):
                 continue
-            
-            # Replace cell name in .subckt and .ends
             if stripped.startswith('.subckt') or stripped.startswith('.ends'):
                 line = re.sub(
                     rf'\b{re.escape(orig_name)}\b',
@@ -381,8 +370,6 @@ class SpiceNetlistWriter(NetlistWriter):
                     line,
                     flags=re.IGNORECASE
                 )
-            
-            # Substitute {param} references with actual values
             for param_name, value in param_values.items():
                 line = re.sub(
                     rf'\{{{param_name}\}}',
@@ -407,7 +394,6 @@ class SpiceNetlistWriter(NetlistWriter):
         cell_name = cell.cell_name
         eff_name = self._get_effective_cell_name(cell)
 
-        # Get instance name with proper prefix for primitives
         inst_name = cell.instance_name
         if self._is_primitive(cell):
             if not inst_name[0].upper() == cell_name:
@@ -433,13 +419,8 @@ class SpiceNetlistWriter(NetlistWriter):
             return self._format_current_source(inst_name, nets, cell)
 
         else:
-            # Generic subcircuit instance
             if not inst_name.startswith('X'):
                 inst_name = 'X' + inst_name
-            params = ' '.join(f'{name}={self._format_value(p.value)}'
-                             for name, p in cell.parameters.items())
-            if params:
-                return f'{inst_name} {nets} {eff_name} {params}'
             return f'{inst_name} {nets} {eff_name}'
 
     def _format_voltage_source(self, inst_name: str, nets: str, cell: Cell) -> str:

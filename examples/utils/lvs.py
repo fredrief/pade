@@ -1,5 +1,6 @@
 """LVS (Layout vs Schematic) using Magic and Netgen."""
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +90,10 @@ class LVS:
         # Step 2: Extract layout netlist
         self._extract_layout(cell_name, gds_file, layout_spice, work_dir)
 
+        # Step 2b: Post-process layout netlist — Magic names substrate SUB,
+        # schematic uses AVSS; replace so pin matching succeeds.
+        self._replace_substrate_in_layout_netlist(layout_spice)
+
         # Step 3: Run Netgen comparison
         matched = self._run_netgen(
             cell_name, layout_spice, schematic_spice,
@@ -149,6 +154,19 @@ quit -noprompt
 
         if not output_spice.exists():
             raise RuntimeError(f"Layout extraction failed:\n{result.stderr or result.stdout}")
+
+    def _replace_substrate_in_layout_netlist(self, path: Path) -> None:
+        """Replace Magic's substrate net name SUB with config.substrate_net_name.
+
+        Magic extracts the bulk node as SUB. Layout netlist is rewritten so
+        pin names match the schematic (e.g. AVSS). Set config.substrate_net_name
+        to "SUB" to skip replacement.
+        """
+        if self.config.substrate_net_name == 'SUB':
+            return
+        content = path.read_text()
+        content = re.sub(r'\bSUB\b', self.config.substrate_net_name, content)
+        path.write_text(content)
 
     def _run_netgen(self, cell_name: str, layout_spice: Path,
                     schematic_spice: Path, log_path: Path,
