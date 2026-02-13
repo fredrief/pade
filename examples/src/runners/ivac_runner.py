@@ -1,11 +1,11 @@
 """Inverter AC gain simulation runner."""
 
 from pathlib import Path
-import ltspice
 import numpy as np
 
 from pade.statement import Statement, Analysis, Save
 from pade.backends.ngspice.simulator import NgspiceSimulator
+from pade.backends.ngspice.results_reader import read_raw
 from pade.utils.parallel import run_parallel
 from pdk.sky130.config import config
 from src.testbenches.inverter import InverterACTB
@@ -57,9 +57,8 @@ class IVACRunner:
 
     def evaluate(self, raw_file: Path) -> dict:
         """Extract DC gain from AC raw file."""
-        raw = ltspice.Ltspice(str(raw_file))
-        raw.parse()
-        vout = raw.get_data('v(out)')
+        data = read_raw(raw_file)
+        vout = data['v(out)']
         dc_gain = np.abs(vout[0])
         return {
             'dc_gain': dc_gain,

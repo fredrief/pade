@@ -121,9 +121,11 @@ class LayoutCell:
                 if getattr(value, 'instance_name', None) is None:
                     object.__setattr__(value, 'instance_name', name)
                 self._add_subcell(value)
+                value._post_register()
             elif p is self and getattr(value, 'instance_name', None) is None:
                 value.instance_name = name
                 self._add_subcell(value)
+                value._post_register()
         elif isinstance(value, (list, LayoutInstanceList)):
             cells = value._cells if isinstance(value, LayoutInstanceList) else value
             if cells and all(
@@ -135,7 +137,15 @@ class LayoutCell:
                         object.__setattr__(cell, 'parent', self)
                     cell.instance_name = name if len(cells) == 1 else f'{name}_{i}'
                     self._add_subcell(cell)
+                    cell._post_register()
         object.__setattr__(self, name, value)
+
+    def _post_register(self) -> None:
+        """Hook called after this cell is registered as a subcell.
+
+        At this point ``instance_name`` and ``parent`` are set.
+        Override in subclasses or decorators that need deferred initialization.
+        """
 
     def __getattr__(self, name: str):
         """

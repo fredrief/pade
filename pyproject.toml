@@ -28,6 +28,5 @@ dev = [
     'matplotlib',
     'pandas',
     'psf-utils',  # For parsing Spectre results
-    'ltspice',    # For parsing NGspice/SPICE raw files
     'bokeh',
 ]

@@ -1,11 +1,11 @@
 """Comparator transient simulation runner."""
 
 from pathlib import Path
-import ltspice
 import numpy as np
 
 from pade.statement import Statement, Analysis, Save
 from pade.backends.ngspice.simulator import NgspiceSimulator
+from pade.backends.ngspice.results_reader import read_raw
 from pdk.sky130.config import config
 from src.testbenches.comparator import ComparatorTranTB
 
@@ -54,13 +54,12 @@ class ComparatorRunner:
 
     def evaluate(self, raw_file: Path) -> dict:
         """Extract output waveforms from raw file."""
-        raw = ltspice.Ltspice(str(raw_file))
-        raw.parse()
+        data = read_raw(raw_file)
         return {
-            'time': raw.get_data('time'),
-            'outp': raw.get_data('v(outp)'),
-            'outn': raw.get_data('v(outn)'),
-            'clk': raw.get_data('v(clk)'),
+            'time': data['time'],
+            'outp': data['v(outp)'],
+            'outn': data['v(outn)'],
+            'clk': data['v(clk)'],
         }
 
     def run_and_evaluate(self, vdiff: float, n_cycles: int = 10) -> dict:
