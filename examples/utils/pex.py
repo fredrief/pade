@@ -101,7 +101,7 @@ quit -noprompt
 '''
 
         result = subprocess.run(
-            ['magic', '-dnull', '-noconsole', '-T', str(self.config.tech_file)],
+            ['magic', '-dnull', '-noconsole', '-norcfile', '-T', str(self.config.tech_file)],
             input=script,
             capture_output=True,
             text=True,

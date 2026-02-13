@@ -15,10 +15,7 @@ class CapMimLayout(SKY130LayoutCell):
         schematic: Schematic CapMim Cell (extracts w, l, metal)
     """
 
-    def __init__(self,
-                 instance_name: str,
-                 parent: SKY130LayoutCell,
-                 schematic):
+    def __init__(self, instance_name=None, parent=None, schematic=None):
         w = float(schematic.get_parameter('w'))
         l = float(schematic.get_parameter('l'))
         metal = schematic.metal

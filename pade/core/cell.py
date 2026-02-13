@@ -28,7 +28,7 @@ class Cell:
     """
 
     def __init__(self,
-                 instance_name: str,
+                 instance_name: Optional[str] = None,
                  parent: Optional['Cell'] = None,
                  cell_name: Optional[str] = None,
                  library: Optional[str] = None,
@@ -37,8 +37,9 @@ class Cell:
         Create a cell.
 
         Args:
-            instance_name: Instance name (unique within parent)
-            parent: Parent cell in hierarchy
+            instance_name: Instance name (unique within parent). If None, set from
+                parent attribute name on assignment (e.g. self.MP = Nfet(...) -> 'MP').
+            parent: Parent cell. If None, set on assignment to a parent's attribute.
             cell_name: Type/definition name (defaults to class name)
             library: Library name
             **kwargs: Additional config options (stored in self.config)
@@ -55,9 +56,9 @@ class Cell:
         self.nets: dict[str, Net] = {}
         self.subcells: dict[str, Cell] = {}
         self.parameters: dict[str, Parameter] = {}
+        self._mult = 1
 
-        # Add self to parent's subcells
-        if self.parent_cell:
+        if self.parent_cell and self.instance_name is not None:
             self.parent_cell._add_subcell(self)
 
     def __str__(self) -> str:
@@ -65,6 +66,28 @@ class Cell:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name != 'parent_cell' and isinstance(value, Cell):
+            p = getattr(value, 'parent_cell', None)
+            if p is None:
+                object.__setattr__(value, 'parent_cell', self)
+                if getattr(value, 'instance_name', None) is None:
+                    object.__setattr__(value, 'instance_name', name)
+                self._add_subcell(value)
+                value._post_register()
+            elif p is self and getattr(value, 'instance_name', None) is None:
+                object.__setattr__(value, 'instance_name', name)
+                self._add_subcell(value)
+                value._post_register()
+        object.__setattr__(self, name, value)
+
+    def _post_register(self) -> None:
+        """Hook called after this cell is registered as a subcell.
+
+        At this point ``instance_name`` and ``parent_cell`` are set.
+        Override in subclasses or decorators that need deferred initialization.
+        """
 
     def __getattr__(self, name: str):
         """
@@ -300,7 +323,7 @@ class Cell:
             self.add_cell(Resistor, 'R1', r=1e3)
             self.add_cell(VoltageSource, 'V1', dc=1.8)
         """
-        return cell_class(instance_name, parent=self, **kwargs)
+        return cell_class(instance_name=instance_name, parent=self, **kwargs)
 
     def _add_subcell(self, cell: 'Cell') -> None:
         """Internal: Add a subcell to this cell."""
@@ -353,6 +376,11 @@ class Cell:
         if name not in self.parameters:
             raise ValueError(f'No parameter named {name} in cell {self.get_name_from_top()}')
         return self.parameters[name].value
+
+    def set_multiplier(self, n: int) -> 'Cell':
+        """Set instance multiplier (parallel copies). Netlist and layout expand to n instances."""
+        self._mult = max(1, int(n))
+        return self
 
     def get_name_from_top(self) -> str:
         """

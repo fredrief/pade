@@ -3,7 +3,7 @@
 from pade.core.testbench import Testbench
 from pade.stdlib import V, C
 from src.components.digital.schematic import NSALCMP
-
+from src.components.behavioral.schematic import IdealComparator
 
 class ComparatorTranTB(Testbench):
     """NSALCMP with CLK pulse and differential DC input.
@@ -23,32 +23,29 @@ class ComparatorTranTB(Testbench):
         period = 1.0 / fclk
 
         # Supply
-        self.Vdd = V('Vdd', self, dc=vdd)
+        self.Vdd = V(dc=vdd)
         self.Vdd.connect(['p', 'n'], ['vdd', '0'])
 
         # Clock (pulse: low=0, high=VDD, 50% duty)
-        self.Vclk = V('Vclk', self,
-                       type='pulse', v1=0, v2=vdd,
-                       td=0, tr=50e-12, tf=50e-12,
-                       pw=period / 2, per=period)
+        self.Vclk = V(type='pulse', v1=0, v2=vdd,
+                      td=0, tr=50e-12, tf=50e-12,
+                      pw=period / 2, per=period)
         self.Vclk.connect(['p', 'n'], ['clk', '0'])
 
         # Differential input
-        self.Vinp = V('Vinp', self, dc=vcm + vdiff / 2)
+        self.Vinp = V(dc=vcm + vdiff / 2)
         self.Vinp.connect(['p', 'n'], ['inp', '0'])
 
-        self.Vinn = V('Vinn', self, dc=vcm - vdiff / 2)
+        self.Vinn = V(dc=vcm - vdiff / 2)
         self.Vinn.connect(['p', 'n'], ['inn', '0'])
 
         # DUT
-        self.DUT = NSALCMP('DUT', self)
-        self.DUT.connect(
-            ['AVDD', 'AVSS', 'CLK', 'INP', 'INN', 'OP', 'ON'],
-            ['vdd', '0', 'clk', 'inp', 'inn', 'outp', 'outn'])
+        self.DUT = IdealComparator(vdd=vdd, vref=vcm)
+        self.DUT.connect(['in', 'out', 'vdd', 'vss'], ['inp', 'outp', 'vdd', '0'])
 
         # Load caps
-        self.CLP = C('CLP', self, c=cl)
+        self.CLP = C(c=cl)
         self.CLP.connect(['p', 'n'], ['outp', '0'])
 
-        self.CLN = C('CLN', self, c=cl)
+        self.CLN = C(c=cl)
         self.CLN.connect(['p', 'n'], ['outn', '0'])

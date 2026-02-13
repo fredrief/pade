@@ -22,7 +22,7 @@ def run_drc(cell, writer, drc):
     """Write GDS and run DRC, return True if passed."""
     writer.write(cell, config.layout_dir)
     result = drc.run(cell)
-    print(f"  Shapes: {len(cell.shapes)}, bbox: {cell.bbox()}")
+    print(f"  Shapes: {len(cell.get_all_shapes())}, bbox: {cell.bbox()}")
     print(f"  DRC: {'PASS' if result.passed else 'FAIL'}")
     if not result.passed:
         with open(result.report_path) as f:

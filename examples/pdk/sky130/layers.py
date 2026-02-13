@@ -1,13 +1,11 @@
 """SKY130 layer definitions for layout."""
 
-import os
 from pade.layout.shape import Layer
 from pade.utils.layermap import create_layermap_from_pdk
+from pdk.sky130.config import config
 
-PDK_ROOT = os.environ.get('PDK_ROOT', os.path.expanduser('~/.ciel'))
-
-# Auto-generate layer map from PDK
-sky130_layers = create_layermap_from_pdk(f'{PDK_ROOT}/sky130A')
+# Auto-generate full layer map from PDK (used by GDSWriter/GDSReader)
+sky130_layers = create_layermap_from_pdk(str(config.pdk_root / 'sky130A'))
 
 # Convenience layer constants (shorter names for common layers)
 # connectivity=True marks layers that carry electrical connectivity.

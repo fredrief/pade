@@ -21,11 +21,31 @@ sky130_rules.LICON = DesignRules.from_dict({
     'ENC_DIFF': 60, 'ENC_POLY': 80, 'ENC_LI': 80,
     'S_IMPL': 235,         # LICON spacing to opposite-type implant (licon.9 + psdm.5a)
 })
-sky130_rules.MCON = DesignRules.from_dict({'W': 170, 'S': 190, 'ENC_BOT': 60, 'ENC_TOP': 60})
-sky130_rules.VIA1 = DesignRules.from_dict({'W': 150, 'S': 170, 'ENC_BOT': 55, 'ENC_TOP': 55})
-sky130_rules.VIA2 = DesignRules.from_dict({'W': 200, 'S': 200, 'ENC_BOT': 40, 'ENC_TOP': 65})
-sky130_rules.VIA3 = DesignRules.from_dict({'W': 200, 'S': 200, 'ENC_BOT': 60, 'ENC_TOP': 60})
-sky130_rules.VIA4 = DesignRules.from_dict({'W': 800, 'S': 800, 'ENC_BOT': 190, 'ENC_TOP': 310})
+sky130_rules.MCON = DesignRules.from_dict({
+    'W': 170, 'H': 170, 'S': 190,
+    'ENC_BOT': 0,   'ENC_BOT_ADJ': 0,     # ct.4: LI enclosure >= 0
+    'ENC_TOP': 30,  'ENC_TOP_ADJ': 60,    # met1.4 / met1.5
+})
+sky130_rules.VIA1 = DesignRules.from_dict({
+    'W': 150, 'H': 150, 'S': 170,
+    'ENC_BOT': 55,  'ENC_BOT_ADJ': 85,    # via.4a / via.5a
+    'ENC_TOP': 55,  'ENC_TOP_ADJ': 85,    # met2.4 / met2.5
+})
+sky130_rules.VIA2 = DesignRules.from_dict({
+    'W': 200, 'H': 200, 'S': 200,
+    'ENC_BOT': 50,  'ENC_BOT_ADJ': 60,
+    'ENC_TOP': 65,  'ENC_TOP_ADJ': 75,
+})
+sky130_rules.VIA3 = DesignRules.from_dict({
+    'W': 200, 'H': 200, 'S': 200,
+    'ENC_BOT': 60,  'ENC_BOT_ADJ': 90,    # via3.5
+    'ENC_TOP': 65,  'ENC_TOP_ADJ': 65,    # met4.3
+})
+sky130_rules.VIA4 = DesignRules.from_dict({
+    'W': 800, 'H': 800, 'S': 800,
+    'ENC_BOT': 190, 'ENC_BOT_ADJ': 190,
+    'ENC_TOP': 310, 'ENC_TOP_ADJ': 310,
+})
 
 # MiM capacitor rules
 sky130_rules.CAPM = DesignRules.from_dict({

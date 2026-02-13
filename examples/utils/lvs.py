@@ -28,6 +28,7 @@ class LVSResult:
     def __str__(self) -> str:
         if self.matched:
             return f"""{GREEN}
+LVS:
                          #       ###################       _   _
                         #        #                 #       *   *
                    #   #         #     CORRECT     #         |
@@ -36,6 +37,7 @@ class LVSResult:
 {RESET}"""
         else:
             return f"""{RED}
+LVS:
                   #   #         ###################
                    # #          #                 #
                     #           #    INCORRECT    #
@@ -145,7 +147,7 @@ quit -noprompt
 '''
 
         result = subprocess.run(
-            ['magic', '-dnull', '-noconsole', '-T', str(self.config.tech_file)],
+            ['magic', '-dnull', '-noconsole', '-norcfile', '-T', str(self.config.tech_file)],
             input=script,
             capture_output=True,
             text=True,

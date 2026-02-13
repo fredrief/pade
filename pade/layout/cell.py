@@ -5,8 +5,9 @@ LayoutCell - Base class for hierarchical layout.
 from typing import Optional, List, Tuple, Union
 from pade.layout.transform import Transform
 from pade.layout.shape import Shape, Layer
-from pade.layout.ref import Ref, Pin
-from pade.layout.route import Route
+from pade.layout.ref import Ref, Pin, Point
+from pade.layout.route import Route, RouteSegment
+from pade.layout.instance_list import LayoutInstanceList
 
 
 class LayoutCell:
@@ -17,7 +18,7 @@ class LayoutCell:
     """
 
     def __init__(self,
-                 instance_name: str,
+                 instance_name: Optional[str] = None,
                  parent: Optional['LayoutCell'] = None,
                  cell_name: Optional[str] = None,
                  schematic=None,
@@ -27,7 +28,8 @@ class LayoutCell:
         Create a layout cell.
 
         Args:
-            instance_name: Instance name (unique within parent)
+            instance_name: Instance name (unique within parent). If None and parent
+                is set, the name is taken from the parent attribute on assignment.
             parent: Parent cell in hierarchy
             cell_name: Base type name (defaults to schematic cell_name or class name)
             schematic: Schematic Cell instance (bidirectional link)
@@ -57,9 +59,10 @@ class LayoutCell:
         # Connectivity checklist (built lazily from schematic)
         self._conn_checklist: Optional[dict] = None  # (inst, term) → net
         self._conn_covered: set = set()               # checked-off (inst, term) pairs
+        self._conn_external_required: Optional[dict] = None  # (schem_inst, term) → net for mult>1
+        self._conn_external_covered: set = set()      # (schem_inst, term) with external connection
 
-        # Register with parent
-        if parent is not None:
+        if parent is not None and self.instance_name is not None:
             parent._add_subcell(self)
 
     def _generate_cell_name(self, base_name: str) -> str:
@@ -102,6 +105,37 @@ class LayoutCell:
 
     def __repr__(self):
         return f"LayoutCell({self.instance_name}, type={self.cell_name})"
+
+    @classmethod
+    def instantiate(cls, parent, schematic=None, **kwargs) -> LayoutInstanceList:
+        """Create one or more layout instances from schematic (mult from schematic.set_multiplier)."""
+        mult = max(1, int(getattr(schematic, '_mult', 1)))
+        cells = [cls(parent=parent, schematic=schematic, **kwargs) for _ in range(mult)]
+        return LayoutInstanceList(cells)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name != 'parent' and isinstance(value, LayoutCell):
+            p = getattr(value, 'parent', None)
+            if p is None:
+                object.__setattr__(value, 'parent', self)
+                if getattr(value, 'instance_name', None) is None:
+                    object.__setattr__(value, 'instance_name', name)
+                self._add_subcell(value)
+            elif p is self and getattr(value, 'instance_name', None) is None:
+                value.instance_name = name
+                self._add_subcell(value)
+        elif isinstance(value, (list, LayoutInstanceList)):
+            cells = value._cells if isinstance(value, LayoutInstanceList) else value
+            if cells and all(
+                    isinstance(c, LayoutCell) and getattr(c, 'parent', None) in (None, self)
+                    and getattr(c, 'instance_name', None) is None
+                    for c in cells):
+                for i, cell in enumerate(cells):
+                    if getattr(cell, 'parent', None) is None:
+                        object.__setattr__(cell, 'parent', self)
+                    cell.instance_name = name if len(cells) == 1 else f'{name}_{i}'
+                    self._add_subcell(cell)
+        object.__setattr__(self, name, value)
 
     def __getattr__(self, name: str):
         """
@@ -197,7 +231,18 @@ class LayoutCell:
             # Transform bounds into self's coordinate system
             x0, y0, x1, y1 = self._transform_ref_bounds(target)
             return Shape.rect(target.layer, x0, y0, x1, y1, net=target.net)
-        raise TypeError(f"target must be a Shape or Ref, got {type(target).__name__}")
+        if isinstance(target, Point):
+            layer = target.layer
+            net = target.net
+            if layer is None and target.ref is not None:
+                layer = target.ref.layer
+            if net is None and target.ref is not None:
+                net = target.ref.net
+            if layer is None:
+                raise ValueError("Point must carry a layer (or originate from a Ref)")
+            x, y = int(target[0]), int(target[1])
+            return Shape.rect(layer, x, y, x, y, net=net)
+        raise TypeError(f"target must be a Shape, Ref, or Point, got {type(target).__name__}")
 
     def get_ref(self, name: str) -> Ref:
         """Get ref by name."""
@@ -212,36 +257,72 @@ class LayoutCell:
     def _build_checklist(self) -> dict:
         """Build ``{(instance_name, terminal_name): net_name}`` from schematic.
 
-        Only direct subcells are included (one level deep).  Terminal
-        names are stored **lower-case** so that the look-up from layout
+        Only direct subcells are included (one level deep).  When a subcell
+        has mult > 1, layout instance names are expanded to inst_0, inst_1, ...
+        Terminal names are stored **lower-case** so that the look-up from layout
         refs/pins (which are often upper-case) is case-insensitive.
         """
         checklist = {}
         if self.schematic is None:
             return checklist
         for inst_name, subcell in self.schematic.subcells.items():
+            mult = max(1, int(getattr(subcell, '_mult', 1)))
             for term_name, terminal in subcell.terminals.items():
-                if terminal.net is not None:
-                    checklist[(inst_name, term_name.lower())] = terminal.net.name
+                if terminal.net is None:
+                    continue
+                net = terminal.net.name
+                term_lower = term_name.lower()
+                for i in range(mult):
+                    layout_inst = inst_name if mult == 1 else f'{inst_name}_{i}'
+                    checklist[(layout_inst, term_lower)] = net
         return checklist
+
+    def _build_external_required(self) -> dict:
+        """Build {(schem_inst_name, term): net} for subcells with mult > 1.
+
+        Each entry means: at least one of inst_0, inst_1, ... must be connected
+        to something outside the group (port or another instance).
+        """
+        out = {}
+        if self.schematic is None:
+            return out
+        for inst_name, subcell in self.schematic.subcells.items():
+            mult = max(1, int(getattr(subcell, '_mult', 1)))
+            if mult <= 1:
+                continue
+            for term_name, terminal in subcell.terminals.items():
+                if terminal.net is None:
+                    continue
+                out[(inst_name, term_name.lower())] = terminal.net.name
+        return out
 
     def _get_checklist(self) -> dict:
         """Lazy accessor for the connectivity checklist."""
         if self._conn_checklist is None:
             self._conn_checklist = self._build_checklist()
+            self._conn_external_required = self._build_external_required()
         return self._conn_checklist
+
+    def _get_external_required(self) -> dict:
+        """Lazy accessor for external-connection requirements (mult > 1)."""
+        self._get_checklist()
+        return self._conn_external_required or {}
 
     def _check_off_ref(self, point, net: Optional[str]) -> None:
         """Mark a route endpoint as covered in the connectivity checklist.
 
-        *point* is a Ref, ref-name string, or coordinate tuple.
+        *point* is a Ref, ref-name string, Point, or coordinate tuple.
         Handles both direct-child refs (e.g. ``self.MN1A.D``) and
         deeper refs (e.g. ``self.I0.MN.G``).  For deep refs the
         local net is resolved upward through the intermediate schematic
         hierarchy to find the terminal on the direct child, which is
         then looked up in the checklist.
+
+        :class:`Point` instances that carry a back-reference to the
+        originating Ref (e.g. ``cap.TOP.north + offset``) are also
+        resolved.
         """
-        ref = self._as_ref(point)
+        ref = self._origin_ref(point)
         if ref is None or net is None:
             return
 
@@ -304,11 +385,89 @@ class LayoutCell:
                     f"{direct_child.instance_name}.{local_net}")
             self._conn_covered.add(key)
 
+    def _resolve_ref_to_schematic_endpoint(self, point) -> Optional[Union[str, tuple]]:
+        """Resolve a route endpoint to 'port' or (schem_inst_name, term) or None.
+
+        Returns 'port' if point is this cell's pin; (schem_inst, term) for a
+        direct subcell ref (schem_inst is base name, e.g. MP1A for MP1A_0);
+        None for tuple coords or refs we can't resolve.
+        """
+        ref = self._origin_ref(point)
+        if ref is None:
+            return None
+        if ref.cell is self and ref.name in self.pins:
+            return 'port'
+        chain = []
+        cell = ref.cell
+        while cell is not None and cell is not self:
+            chain.append(cell)
+            cell = cell.parent
+        if cell is not self or not chain:
+            return None
+        direct_child = chain[-1]
+        if direct_child.schematic is None or self.schematic is None:
+            return None
+        if len(chain) == 1:
+            if isinstance(ref, Pin):
+                local_net = ref.terminal
+            else:
+                local_net = ref.net
+        else:
+            local_net = ref.net
+            for layout_cell in chain[:-1]:
+                schem = layout_cell.schematic
+                if schem is None:
+                    return None
+                term_name = next(
+                    (t for t in schem.terminals if t.lower() == (local_net or '').lower()),
+                    None
+                )
+                if term_name is None or schem.terminals[term_name].net is None:
+                    return None
+                local_net = schem.terminals[term_name].net.name
+        if local_net is None:
+            return None
+        term_key = local_net.lower()
+        schem_inst = next(
+            (k for k, v in self.schematic.subcells.items() if v is direct_child.schematic),
+            None
+        )
+        if schem_inst is None:
+            return None
+        return (schem_inst, term_key)
+
+    def _check_off_external(self, start, end, net: Optional[str]) -> None:
+        """If this route connects a mult group to something outside the group, mark external as covered."""
+        if net is None:
+            return
+        ext_req = self._get_external_required()
+        if not ext_req:
+            return
+        A = self._resolve_ref_to_schematic_endpoint(start)
+        B = self._resolve_ref_to_schematic_endpoint(end)
+        if A is None or B is None:
+            return
+        if A == B:
+            return
+        def outside_group(key, other):
+            if key == 'port' or not isinstance(key, tuple):
+                return False
+            if other == 'port':
+                return True
+            if isinstance(other, tuple) and other[0] != key[0]:
+                return True
+            return False
+        for key in (A, B):
+            other = B if key is A else A
+            if isinstance(key, tuple) and key in ext_req and outside_group(key, other):
+                self._conn_external_covered.add(key)
+
     def check_off_net(self, net: str) -> None:
         """Mark all schematic connections for *net* as covered in the checklist.
 
         Use when a net is connected implicitly (e.g. power via tap overlap)
         so that every (instance, terminal) on that net is checked off.
+        Also satisfies external requirements for mult groups on that net.
 
         Args:
             net: Net name (e.g. 'AVSS', 'AVDD')
@@ -318,26 +477,36 @@ class LayoutCell:
         for (inst, term), checklist_net in checklist.items():
             if checklist_net.lower() == net_lower:
                 self._conn_covered.add((inst, term))
+        for (schem_inst, term), ext_net in self._get_external_required().items():
+            if ext_net.lower() == net_lower:
+                self._conn_external_covered.add((schem_inst, term))
 
     def check_connectivity(self) -> list:
         """Report schematic connections not yet covered by ``route()`` calls.
 
         Returns a list of dicts with keys *instance*, *terminal*, *net*
-        for every uncovered connection.  An empty list means all
-        connections are accounted for.
+        for every uncovered connection.  For mult>1, also requires at least
+        one instance in the group to be connected to something outside the group.
+        An empty list means all connections are accounted for.
         """
         checklist = self._get_checklist()
+        ext_req = self._get_external_required()
         missing = []
         for (inst, term), net in sorted(checklist.items()):
             if (inst, term) not in self._conn_covered:
                 missing.append({'instance': inst, 'terminal': term, 'net': net})
+        for (schem_inst, term), net in sorted(ext_req.items()):
+            if (schem_inst, term) not in self._conn_external_covered:
+                missing.append({'instance': schem_inst, 'terminal': term, 'net': net})
         return missing
 
     def print_connectivity_report(self) -> None:
         """Print a human-readable connectivity report."""
         missing = self.check_connectivity()
-        total = len(self._get_checklist())
-        covered = len(self._conn_covered)
+        checklist = self._get_checklist()
+        ext_req = self._get_external_required()
+        total = len(checklist) + len(ext_req)
+        covered = len(self._conn_covered) + len(self._conn_external_covered)
         print(f"Connectivity: {covered}/{total} connections covered")
         if not missing:
             print("  All connections covered.")
@@ -449,7 +618,8 @@ class LayoutCell:
         # Check off connectivity
         self._check_off_ref(start, net)
         self._check_off_ref(end, net)
-        
+        self._check_off_external(start, end, net)
+
         # Compute waypoints
         points = self._compute_route_points(x0, y0, x1, y1, how, jog_start, jog_end)
         
@@ -476,11 +646,12 @@ class LayoutCell:
         """
         ref = self._as_ref(point)
         if ref is not None:
-            # Perpendicular extent of the ref shape
             if seg_dir == '-':
-                extent = ref.height  # track offsets in Y
+                extent = ref.height
             else:
-                extent = ref.width   # track offsets in X
+                extent = ref.width
+            # Ensure we clear a via at the ref (via top metal often larger than pin)
+            extent = max(extent, 2 * min_s + width)
         else:
             extent = 0
         sign = 1 if track > 0 else -1
@@ -503,21 +674,41 @@ class LayoutCell:
             return self.refs[point]
         return None
 
+    def _origin_ref(self, point) -> Optional[Ref]:
+        """Return the Ref this point logically originates from.
+
+        Like :meth:`_as_ref` but also resolves ``Point.ref``, so that
+        compass points (``ref.north``, ``ref.south + offset``, etc.)
+        trace back to their originating Ref.  Used for connectivity
+        bookkeeping where provenance matters but geometry does not.
+        """
+        ref = self._as_ref(point)
+        if ref is not None:
+            return ref
+        back_ref = getattr(point, 'ref', None)
+        if isinstance(back_ref, Ref):
+            return back_ref
+        return None
+
     def _resolve_route_point(self, point: Union[Tuple[int, int], Ref, str]
                              ) -> Tuple[int, int, Optional[str]]:
         """
         Resolve a route point to (x, y, net).
 
         Handles subcell refs by transforming coordinates to self's system.
+        RouteSegment is resolved to its center.
         
         Args:
-            point: (x, y) tuple, Ref object, or ref name string
+            point: (x, y) tuple, Ref, ref name string, or RouteSegment
         
         Returns:
             (x, y, net) where net may be None
         """
-        if isinstance(point, Ref):
+        if isinstance(point, RouteSegment):
             cx, cy = point.center
+            return cx, cy, point.net
+        if isinstance(point, Ref):
+            cx, cy = point.local_center
             # Transform through hierarchy if ref belongs to a subcell
             cell = point.cell
             while cell is not None and cell is not self:
@@ -526,10 +717,11 @@ class LayoutCell:
             return cx, cy, point.net
         if isinstance(point, str):
             ref = self.get_ref(point)
-            cx, cy = ref.center
+            cx, cy = ref.local_center
             return cx, cy, ref.net
-        # Assume tuple
-        return point[0], point[1], None
+        # Point (tuple subclass with optional .net) or plain tuple
+        net = getattr(point, 'net', None)
+        return point[0], point[1], net
     
     def _compute_route_points(self, x0: int, y0: int, x1: int, y1: int,
                               how: str, jog_start: int, jog_end: int
@@ -655,7 +847,7 @@ class LayoutCell:
         up to (but not including) ``self.parent``, applying transforms.
         """
         if isinstance(point, Ref):
-            cx, cy = point.center
+            cx, cy = point.local_center
             cell = point.cell
             while cell is not None and cell is not self.parent:
                 cx, cy = cell.transform.apply_point(cx, cy)
@@ -663,7 +855,8 @@ class LayoutCell:
             return cx, cy
         return point[0], point[1]
 
-    def align(self, direction: str, other: 'LayoutCell', margin: int = 0) -> 'LayoutCell':
+    def align(self, direction: str, other: Union['LayoutCell', LayoutInstanceList], margin: int = 0,
+              match: bool = False) -> 'LayoutCell':
         """
         Align self relative to other cell (both must share the same parent).
 
@@ -673,10 +866,14 @@ class LayoutCell:
             'above': self's bottom edge at other's top edge + margin
             'below': self's top edge at other's bottom edge - margin
 
+        If match=True, also align the perpendicular axis: same x for above/below (left edges),
+        same y for right/left (bottom edges).
+
         Returns self for chaining.
         """
+        other_cell = other[0] if isinstance(other, LayoutInstanceList) else other
         sb = self.transformed_bbox()
-        ob = other.transformed_bbox()
+        ob = other_cell.transformed_bbox()
 
         if direction == 'right':
             self.move(dx=ob[2] + margin - sb[0])
@@ -688,6 +885,13 @@ class LayoutCell:
             self.move(dy=ob[1] - margin - sb[3])
         else:
             raise ValueError(f"Unknown direction: '{direction}'. Use 'right', 'left', 'above', 'below'.")
+
+        if match:
+            sb = self.transformed_bbox()
+            if direction in ('above', 'below'):
+                self.move(dx=ob[0] - sb[0])
+            else:
+                self.move(dy=ob[1] - sb[1])
         return self
 
     def _add_subcell(self, cell: 'LayoutCell') -> None:
@@ -768,7 +972,7 @@ class LayoutCell:
         if transform is None:
             transform = Transform()
         if _path is None:
-            _path = self.instance_name
+            _path = self.instance_name or self.cell_name or '<top>'
 
         result = []
 
@@ -777,7 +981,7 @@ class LayoutCell:
             s = shape.transformed(transform)
             if resolve_nets:
                 local_net = s.net
-                s.source = f'{_path} ({local_net})' if local_net else _path
+                s.source = f'{_path} net={local_net}' if local_net else _path
                 if _net_map and s.net:
                     s.net = _net_map.get(s.net.lower(), s.net)
             result.append(s)

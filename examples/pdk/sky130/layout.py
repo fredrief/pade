@@ -1,30 +1,28 @@
 """SKY130 LayoutCell with config support."""
 
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple, Union, Sequence
 from pade.layout.cell import LayoutCell
 from pade.layout.shape import Shape, Layer
-from pade.layout.ref import Ref
-from pade.layout.route import Route
+from pade.layout.ref import Ref, Point
+from pade.layout.route import Route, RouteSegment
 from pdk.sky130.rules import sky130_rules
 from pdk.sky130.vias import ViaDefinition, get_via_stack, layer_in_stack
-
-NM_PER_UM = 1000
-
 
 class SKY130LayoutCell(LayoutCell):
     """LayoutCell with SKY130 config and convenience methods."""
 
     def __init__(self,
-                 instance_name: str,
+                 instance_name: Optional[str] = None,
                  parent: Optional['LayoutCell'] = None,
                  cell_name: Optional[str] = None,
                  **kwargs):
         super().__init__(instance_name, parent, cell_name, **kwargs)
         self.rules = sky130_rules
 
-    def to_nm(self, um_value: float) -> int:
+    @staticmethod
+    def to_nm(um_value: float) -> int:
         """Convert user-facing um value to internal nm coordinates."""
-        return int(um_value * NM_PER_UM)
+        return int(um_value * 1000)
 
     # ------------------------------------------------------------------
     # Placement helpers
@@ -51,7 +49,10 @@ class SKY130LayoutCell(LayoutCell):
                 cells[i].align('above', cells[i - 1], margin=margin)
         else:
             for i in range(1, len(cells)):
-                cells[i].place(at=cells[i - 1].DTOP, anchor=cells[i].DBOT)
+                try:
+                    cells[i].place(at=cells[i - 1].DTOP, anchor=cells[i].DBOT)
+                except:
+                    cells[i].place(at=cells[i - 1].MN.DTOP, anchor=cells[i].MN.DBOT)
 
     # ------------------------------------------------------------------
     # Via placement
@@ -164,7 +165,7 @@ class SKY130LayoutCell(LayoutCell):
 
     def route(self, start: Union[Tuple[int, int], Ref, str],
               end: Union[Tuple[int, int], Ref, str],
-              layer: Layer,
+              layer: Union[Layer, Sequence[Layer]],
               width: Optional[int] = None,
               how: str = '-|',
               jog_start: int = 0,
@@ -172,31 +173,80 @@ class SKY130LayoutCell(LayoutCell):
               track: int = 0,
               track_end: int = 0,
               net: Optional[str] = None,
-              end_style: str = 'extend') -> Route:
+              end_style: str = 'extend',
+              via_nx_start: Optional[int] = None,
+              via_ny_start: Optional[int] = None,
+              via_nx_end: Optional[int] = None,
+              via_ny_end: Optional[int] = None) -> Route:
         """Create and draw a route with automatic via insertion.
 
-        If start or end is a Ref on a different layer than *layer*,
-        a via stack is inserted at that endpoint.  The via fills the
-        ref's bounding area by default.
+        Multi-layer support:
+
+        * **1 layer** — all segments on that layer, no corner vias.
+        * **2 layers** — direction-based assignment.  The first layer maps
+          to the first character of *how*, the second to the other
+          direction.  E.g. ``(M3, M2)`` with ``how='-|'`` puts horizontal
+          segments on M3 and vertical segments on M2.  A 1×2 corner via
+          is inserted at every layer transition.
+        * **N layers** (one per segment) — explicit per-segment assignment.
+
+        If start or end is a Ref on a different layer than the route's
+        first/last layer, a via stack is inserted at that endpoint.
+
+        For multi-layer routes the default width is bumped up so that
+        corner vias (1×2) fit entirely within the route.
 
         Args:
             start: Starting point — (x, y) tuple, Ref, or ref name string
             end: Ending point — (x, y) tuple, Ref, or ref name string
-            layer: Routing layer for the wire
-            width: Route width in nm (default: layer minimum from rules)
+            layer: Routing layer, or sequence of layers (1, 2, or N)
+            width: Route width in nm (default: max of layer min width and
+                corner via requirement)
             how: Route pattern: '-', '|', '-|', '|-'
             jog_start: Perpendicular offset at start (nm)
             jog_end: Perpendicular offset at end (nm)
-            track: Integer track offset at start (pitch = width + min_spacing)
-            track_end: Integer track offset at end
+            track: Integer track offset at start.  Uses PDK min_spacing
+                and width rules to compute the perpendicular offset.
+                See ``LayoutCell._track_to_jog`` for details.
+            track_end: Integer track offset at end (same convention)
             net: Net name (auto-detected from Ref if not specified)
             end_style: ``'extend'`` (default) or ``'flush'``
+            via_nx_start, via_ny_start: Via cut count at start (overrides ref area)
+            via_nx_end, via_ny_end: Via cut count at end (overrides ref area)
 
         Returns:
             The drawn Route object
         """
+        layers = list(layer) if isinstance(layer, (list, tuple)) else [layer]
+        first_layer = layers[0]
+        last_layer = layers[-1]
         if width is None:
-            width = self._get_layer_min_width(layer)
+            width = self._get_layer_min_width(first_layer)
+
+        # For multi-layer routes, ensure width fits corner vias (1×2)
+        if len(layers) >= 2:
+            for la, lb in zip(layers, layers[1:]):
+                if la != lb:
+                    for vdef in get_via_stack(la, lb):
+                        width = max(width, vdef.min_route_width())
+
+        # For 2-layer direction-based routes, a jog from track/jog_start
+        # flips the first segment to the perpendicular direction (and thus
+        # the other layer).  Recompute first_layer/last_layer accordingly.
+        if len(layers) == 2:
+            if how[0] == '-':
+                dir_layer = {'-': layers[0], '|': layers[1]}
+            else:
+                dir_layer = {'|': layers[0], '-': layers[1]}
+            first_dir = how[0]
+            if track != 0 or jog_start != 0:
+                first_dir = '|' if first_dir == '-' else '-'
+            first_layer = dir_layer[first_dir]
+            last_how = how[-1] if len(how) > 1 else how[0]
+            last_dir = last_how
+            if track_end != 0 or jog_end != 0:
+                last_dir = '|' if last_dir == '-' else '-'
+            last_layer = dir_layer[last_dir]
 
         # Resolve net early so vias get it too
         if net is None:
@@ -204,29 +254,126 @@ class SKY130LayoutCell(LayoutCell):
                 net = start.net
             elif isinstance(end, Ref):
                 net = end.net
+            elif getattr(start, 'net', None) is not None:
+                net = start.net
+            elif getattr(end, 'net', None) is not None:
+                net = end.net
 
-        # Auto-via at start (only for layers in the routing stack)
+        # Auto-via at start (connect ref/point to first segment layer)
         start_ref = self._as_ref(start)
-        if (start_ref is not None
-                and start_ref.layer != layer
-                and layer_in_stack(start_ref.layer)
-                and layer_in_stack(layer)):
+        if start_ref is not None and start_ref.layer != first_layer and layer_in_stack(start_ref.layer) and layer_in_stack(first_layer):
             sx, sy = self._ref_center_in_self(start_ref)
-            area = (start_ref.width, start_ref.height)
-            self.add_via(start_ref.layer, layer, sx, sy, area=area, net=net)
+            via_kw = dict(net=net)
+            if via_nx_start is not None and via_ny_start is not None:
+                via_kw['nx'], via_kw['ny'] = via_nx_start, via_ny_start
+            else:
+                via_kw['area'] = (start_ref.width, start_ref.height)
+            self.add_via(start_ref.layer, first_layer, sx, sy, **via_kw)
+        elif isinstance(start, RouteSegment) and start.layer is not None and start.layer != first_layer and layer_in_stack(start.layer) and layer_in_stack(first_layer):
+            sx, sy = start.center
+            nx, ny = (via_nx_start, via_ny_start) if (via_nx_start is not None and via_ny_start is not None) else ((1, 2) if start.start[0] == start.end[0] else (2, 1))
+            self.add_via(start.layer, first_layer, sx, sy, nx=nx, ny=ny, net=net)
+        elif isinstance(start, Point) and getattr(start, 'layer', None) is not None and start.layer != first_layer and layer_in_stack(start.layer) and layer_in_stack(first_layer):
+            via_stack = get_via_stack(start.layer, first_layer)
+            if via_stack:
+                cnx, cny = via_stack[0].corner_cuts()
+                if via_nx_start is not None and via_ny_start is not None:
+                    cnx, cny = via_nx_start, via_ny_start
+                self.add_via(start.layer, first_layer, start[0], start[1],
+                             nx=cnx, ny=cny, net=net)
 
-        # Auto-via at end (only for layers in the routing stack)
+        # Auto-via at end (connect last segment layer to ref/point)
         end_ref = self._as_ref(end)
-        if (end_ref is not None
-                and end_ref.layer != layer
-                and layer_in_stack(end_ref.layer)
-                and layer_in_stack(layer)):
+        if end_ref is not None and end_ref.layer != last_layer and layer_in_stack(end_ref.layer) and layer_in_stack(last_layer):
             ex, ey = self._ref_center_in_self(end_ref)
-            area = (end_ref.width, end_ref.height)
-            self.add_via(end_ref.layer, layer, ex, ey, area=area, net=net)
+            via_kw = dict(net=net)
+            if via_nx_end is not None and via_ny_end is not None:
+                via_kw['nx'], via_kw['ny'] = via_nx_end, via_ny_end
+            else:
+                via_kw['area'] = (end_ref.width, end_ref.height)
+            self.add_via(end_ref.layer, last_layer, ex, ey, **via_kw)
+        elif isinstance(end, RouteSegment) and end.layer is not None and end.layer != last_layer and layer_in_stack(end.layer) and layer_in_stack(last_layer):
+            ex, ey = end.center
+            nx, ny = (via_nx_end, via_ny_end) if (via_nx_end is not None and via_ny_end is not None) else ((1, 2) if end.start[0] == end.end[0] else (2, 1))
+            self.add_via(end.layer, last_layer, ex, ey, nx=nx, ny=ny, net=net)
+        elif isinstance(end, Point) and getattr(end, 'layer', None) is not None and end.layer != last_layer and layer_in_stack(end.layer) and layer_in_stack(last_layer):
+            via_stack = get_via_stack(end.layer, last_layer)
+            if via_stack:
+                cnx, cny = via_stack[0].corner_cuts()
+                if via_nx_end is not None and via_ny_end is not None:
+                    cnx, cny = via_nx_end, via_ny_end
+                self.add_via(end.layer, last_layer, end[0], end[1],
+                             nx=cnx, ny=cny, net=net)
 
-        return super().route(start, end, layer, width, how, jog_start, jog_end,
-                             track, track_end, net, end_style=end_style)
+        if len(layers) == 1:
+            return super().route(start, end, first_layer, width, how, jog_start, jog_end,
+                                 track, track_end, net, end_style=end_style)
+
+        # Multi-layer route with direction-based layer assignment
+        min_s = self._get_layer_min_spacing(first_layer, width)
+        pitch = width + min_s
+        if track != 0:
+            jog_start += self._track_to_jog(track, start, how[0], width, min_s, pitch)
+        last_dir = how[-1] if len(how) > 1 else how[0]
+        if track_end != 0:
+            jog_end += self._track_to_jog(track_end, end, last_dir, width, min_s, pitch)
+
+        x0, y0, net0 = self._resolve_route_point(start)
+        x1, y1, net1 = self._resolve_route_point(end)
+        if net is None:
+            net = net0 or net1
+        self._check_off_ref(start, net)
+        self._check_off_ref(end, net)
+        self._check_off_external(start, end, net)
+
+        points = self._compute_route_points(x0, y0, x1, y1, how, jog_start, jog_end)
+        n_seg = len(points) - 1
+
+        # Expand layers to per-segment based on direction
+        if len(layers) == 2:
+            if how[0] == '-':
+                dir_layer = {'-': layers[0], '|': layers[1]}
+            else:
+                dir_layer = {'|': layers[0], '-': layers[1]}
+            seg_layers = []
+            for i in range(n_seg):
+                px0, py0 = points[i]
+                px1, py1 = points[i + 1]
+                seg_layers.append(dir_layer['-'] if py0 == py1 else dir_layer['|'])
+        elif len(layers) == n_seg:
+            seg_layers = layers
+        else:
+            raise ValueError(
+                f"layer must be 1, 2, or {n_seg} layers for {n_seg} segments (how={how!r})")
+
+        hw = width // 2
+        ext = hw if end_style == 'extend' else 0
+
+        for i in range(n_seg):
+            px0, py0 = points[i]
+            px1, py1 = points[i + 1]
+            ly = seg_layers[i]
+            if py0 == py1:
+                left = min(px0, px1) - ext
+                right = max(px0, px1) + ext
+                self.add_rect(ly, left, py0 - hw, right, py0 + hw, net=net)
+            elif px0 == px1:
+                bottom = min(py0, py1) - ext
+                top = max(py0, py1) + ext
+                self.add_rect(ly, px0 - hw, bottom, px0 + hw, top, net=net)
+            else:
+                raise ValueError(f"Diagonal segment: ({px0},{py0}) to ({px1},{py1})")
+
+            # Insert 1×2 corner via at layer transitions
+            if i + 1 < n_seg and seg_layers[i] != seg_layers[i + 1]:
+                cx, cy = points[i + 1]
+                via_stack = get_via_stack(seg_layers[i], seg_layers[i + 1])
+                if via_stack:
+                    cnx, cny = via_stack[0].corner_cuts()
+                    self.add_via(seg_layers[i], seg_layers[i + 1], cx, cy,
+                                 nx=cnx, ny=cny, net=net)
+
+        return Route(points, seg_layers, width, net, end_style=end_style)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -252,7 +399,7 @@ class SKY130LayoutCell(LayoutCell):
 
     def _ref_center_in_self(self, ref: Ref) -> Tuple[int, int]:
         """Get ref center transformed into self's coordinate system."""
-        cx, cy = ref.center
+        cx, cy = ref.local_center
         cell = ref.cell
         while cell is not None and cell is not self:
             cx, cy = cell.transform.apply_point(cx, cy)

@@ -1,16 +1,18 @@
 """SKY130 via definitions and layer stack.
 
-All dimensions in nm. Rules from SKY130 DRC manual (Table F3c, S8D flow).
+Layer topology, cut-count helpers, and via-stack lookup.
+All numeric rules come from sky130_rules (rules.py) — single source of truth.
 """
 
 from dataclasses import dataclass
 from pade.layout.shape import Layer
 from pdk.sky130.layers import LI, M1, M2, M3, M4, M5, MCON, VIA1, VIA2, VIA3, VIA4
+from pdk.sky130.rules import sky130_rules
 
 
 @dataclass
 class ViaDefinition:
-    """Rules for building a via between two adjacent routing layers.
+    """Via between two adjacent routing layers.
 
     Enclosure rules follow the SKY130 directional pattern:
       - enc: minimum enclosure on all sides
@@ -18,19 +20,6 @@ class ViaDefinition:
 
     When drawing, enc_adj is applied in the x-direction and enc in the
     y-direction (satisfying the "one of two adjacent sides" rule).
-
-    Attributes:
-        name: Human-readable name (e.g. 'MCON')
-        bot_layer: Bottom routing layer
-        cut_layer: Via cut layer
-        top_layer: Top routing layer
-        cut_w: Cut width (nm)
-        cut_h: Cut height (nm)
-        cut_space: Min cut-to-cut spacing (nm)
-        bot_enc: Bottom metal min enclosure, all sides (nm)
-        bot_enc_adj: Bottom metal directional enclosure (nm)
-        top_enc: Top metal min enclosure, all sides (nm)
-        top_enc_adj: Top metal directional enclosure (nm)
     """
     name: str
     bot_layer: Layer
@@ -44,12 +33,21 @@ class ViaDefinition:
     top_enc: int
     top_enc_adj: int
 
-    def max_cuts(self, w: int, h: int) -> tuple[int, int]:
-        """Max cuts (nx, ny) fitting in an area of w × h (nm).
+    @classmethod
+    def from_rules(cls, name: str, bot_layer: Layer, cut_layer: Layer,
+                   top_layer: Layer, rules) -> 'ViaDefinition':
+        """Construct from a DesignRules object (sky130_rules.MCON, etc.)."""
+        return cls(
+            name=name,
+            bot_layer=bot_layer, cut_layer=cut_layer, top_layer=top_layer,
+            cut_w=rules.W, cut_h=getattr(rules, 'H', rules.W),
+            cut_space=rules.S,
+            bot_enc=rules.ENC_BOT, bot_enc_adj=rules.ENC_BOT_ADJ,
+            top_enc=rules.ENC_TOP, top_enc_adj=rules.ENC_TOP_ADJ,
+        )
 
-        The area is the region available for the cut array (no enclosure
-        included — caller subtracts enclosures before calling if needed).
-        """
+    def max_cuts(self, w: int, h: int) -> tuple[int, int]:
+        """Max cuts (nx, ny) fitting in an area of w × h (nm)."""
         nx = max(1, (w + self.cut_space) // (self.cut_w + self.cut_space))
         ny = max(1, (h + self.cut_space) // (self.cut_h + self.cut_space))
         return nx, ny
@@ -60,37 +58,38 @@ class ViaDefinition:
         h = ny * self.cut_h + max(0, ny - 1) * self.cut_space
         return w, h
 
+    def _metal_footprint(self, nx: int, ny: int) -> tuple[int, int]:
+        """Max metal extent (w, h) across bot and top for nx×ny cuts.
 
-# ---------------------------------------------------------------------------
-# SKY130 via definitions (from Table F3c / periphery rules)
-# ---------------------------------------------------------------------------
+        Uses the fixed convention: enc_adj in x, enc in y.
+        """
+        arr_w, arr_h = self.array_extent(nx, ny)
+        bot_w = arr_w + 2 * self.bot_enc_adj
+        bot_h = arr_h + 2 * self.bot_enc
+        top_w = arr_w + 2 * self.top_enc_adj
+        top_h = arr_h + 2 * self.top_enc
+        return max(bot_w, top_w), max(bot_h, top_h)
 
-#                                                    cut  cut  cut   bot   bot    top   top
-#                                                    w    h    space enc   enc_a  enc   enc_a
-MCON_DEF = ViaDefinition('MCON', LI, MCON, M1,
-                         cut_w=170, cut_h=170, cut_space=190,
-                         bot_enc=0,  bot_enc_adj=0,     # ct.4: LI enc >= 0
-                         top_enc=30, top_enc_adj=60)     # met1.4/met1.5
+    def corner_cuts(self) -> tuple[int, int]:
+        """Optimal (nx, ny) for a 1×2 corner via minimizing footprint."""
+        w_a, h_a = self._metal_footprint(1, 2)
+        w_b, h_b = self._metal_footprint(2, 1)
+        if max(w_a, h_a) <= max(w_b, h_b):
+            return 1, 2
+        return 2, 1
 
-VIA1_DEF = ViaDefinition('VIA1', M1, VIA1, M2,
-                         cut_w=150, cut_h=150, cut_space=170,
-                         bot_enc=55, bot_enc_adj=85,     # via.4a/via.5a
-                         top_enc=55, top_enc_adj=85)     # met2.4/met2.5
+    def min_route_width(self) -> int:
+        """Minimum route width for a corner 1×2 via to fit within the route."""
+        nx, ny = self.corner_cuts()
+        w, h = self._metal_footprint(nx, ny)
+        return max(w, h)
 
-VIA2_DEF = ViaDefinition('VIA2', M2, VIA2, M3,
-                         cut_w=200, cut_h=200, cut_space=200,
-                         bot_enc=40, bot_enc_adj=55,     # via2.4/via2.4a (generous for grid)
-                         top_enc=55, top_enc_adj=75)     # met3.3/met3.4 (generous for grid + MIN_W)
 
-VIA3_DEF = ViaDefinition('VIA3', M3, VIA3, M4,
-                         cut_w=200, cut_h=200, cut_space=200,
-                         bot_enc=60, bot_enc_adj=60,     # no directional rule found
-                         top_enc=60, top_enc_adj=60)     # no directional rule found
-
-VIA4_DEF = ViaDefinition('VIA4', M4, VIA4, M5,
-                         cut_w=800, cut_h=800, cut_space=800,
-                         bot_enc=190, bot_enc_adj=190,   # no directional rule found
-                         top_enc=310, top_enc_adj=310)   # no directional rule found
+MCON_DEF = ViaDefinition.from_rules('MCON', LI, MCON, M1, sky130_rules.MCON)
+VIA1_DEF = ViaDefinition.from_rules('VIA1', M1, VIA1, M2, sky130_rules.VIA1)
+VIA2_DEF = ViaDefinition.from_rules('VIA2', M2, VIA2, M3, sky130_rules.VIA2)
+VIA3_DEF = ViaDefinition.from_rules('VIA3', M3, VIA3, M4, sky130_rules.VIA3)
+VIA4_DEF = ViaDefinition.from_rules('VIA4', M4, VIA4, M5, sky130_rules.VIA4)
 
 
 # ---------------------------------------------------------------------------

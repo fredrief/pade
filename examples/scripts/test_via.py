@@ -53,7 +53,7 @@ def test_standalone_via():
 
 def test_auto_via_route():
     """Test auto-via in route: inverter with M2 drain connection."""
-    sch = IVX('dut', wn=1.0, wp=2.0, l=0.15, nf=2)
+    sch = IVX(instance_name='dut', wn=1.0, wp=2.0, l=0.15, nf=2)
     layout = IVXLayout_M2Drain('dut', schematic=sch)
 
     writer = GDSWriter(layer_map=sky130_layers)

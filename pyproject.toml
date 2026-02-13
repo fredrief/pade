@@ -4,17 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pade"
-version = "1.0.0-dev"
+version = "0.1.0"
 authors = [
   { name="Fredrik Feyling", email="fredrik.feyling@hotmail.com" },
 ]
-description = "Python based Analog Design Environment"
+description = "Programmatic Analog Design Environment"
 readme = "README.md"
 requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
     'numpy',

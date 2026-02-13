@@ -94,14 +94,14 @@ class GDSWriter(LayoutWriter):
         # Create this cell
         gds_cell = lib.new_cell(cell.cell_name)
 
-        # Add shapes
+        # Add shapes (supports arbitrary polygons, not just rectangles)
         for shape in cell.shapes:
             layer, datatype = self._get_gds_layer(shape.layer)
-            b = shape.bounds
-            # Coordinates in nm, GDS in database units (also nm with unit=1e-9)
-            rect = gdstk.rectangle((b[0], b[1]), (b[2], b[3]),
-                                   layer=layer, datatype=datatype)
-            gds_cell.add(rect)
+            # Extract exterior coordinates (Shapely closes the ring;
+            # gdstk expects an open polygon, so drop the closing point).
+            coords = list(shape.geometry.exterior.coords)[:-1]
+            poly = gdstk.Polygon(coords, layer=layer, datatype=datatype)
+            gds_cell.add(poly)
 
         # Add subcell references
         for inst_name, subcell in cell.subcells.items():

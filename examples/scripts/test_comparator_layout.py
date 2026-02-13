@@ -46,11 +46,7 @@ def run_lvs(layout, schematic, writer, lvs):
 WN = 1.0
 L = 0.15
 
-CELLS = [
-    ('NSAL', NSAL, NSALLayout, {'wn': WN, 'l': L}),
-    # ('NSALRSTL', NSALRSTL, NSALRSTLLayout, {'wn': WN, 'l': L}),
-    # ('NSALCMP', NSALCMP, NSALCMPLayout, {'wn': WN, 'l': L}),
-]
+
 
 
 def test_shorts():
@@ -114,6 +110,11 @@ def test_lvs():
             all_passed = False
     return all_passed
 
+CELLS = [
+    ('NSAL', NSAL, NSALLayout, {'wn': WN, 'l': L}),
+    ('NSALRSTL', NSALRSTL, NSALRSTLLayout, {'wn': WN, 'l': L}),
+    ('NSALCMP', NSALCMP, NSALCMPLayout, {'wn': WN, 'l': L}),
+]
 
 if __name__ == '__main__':
     results = {

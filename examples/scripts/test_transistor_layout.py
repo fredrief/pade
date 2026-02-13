@@ -11,6 +11,7 @@ sys.path.insert(0, str(examples_dir))
 
 from pade.backends.gds.layout_writer import GDSWriter
 from pdk.sky130.config import config
+from pdk.sky130.layout import SKY130LayoutCell
 from pdk.sky130.layers import sky130_layers
 from pdk.sky130.primitives.transistors.layout import NFET_01V8_Layout, PFET_01V8_Layout
 from pdk.sky130.primitives.transistors.schematic import Nfet01v8, Pfet01v8
@@ -22,7 +23,7 @@ def run_drc(cell, writer, drc):
     """Write GDS and run DRC, return True if passed."""
     writer.write(cell, config.layout_dir)
     result = drc.run(cell)
-    print(f"  Shapes: {len(cell.shapes)}, bbox: {cell.bbox()}")
+    print(f"  Shapes: {len(cell.get_all_shapes())}, bbox: {cell.bbox()}")
     print(f"  {result}")
     if not result.passed:
         with open(result.report_path) as f:
@@ -62,9 +63,10 @@ def test_nfet_single():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc}:")
-        sch = Nfet01v8('M1', None, w=w, l=l, nf=1)
-        nfet = NFET_01V8_Layout('M1', None, schematic=sch)
-        if not run_drc(nfet, writer, drc):
+        sch = Nfet01v8(instance_name='M1', w=w, l=l, nf=1)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.M1 = NFET_01V8_Layout.instantiate(root, schematic=sch)
+        if not run_drc(root, writer, drc):
             all_passed = False
 
     return all_passed
@@ -87,17 +89,18 @@ def test_pfet_single():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc}:")
-        sch = Pfet01v8('M1', None, w=w, l=l, nf=1)
-        pfet = PFET_01V8_Layout('M1', None, schematic=sch)
+        sch = Pfet01v8(instance_name='M1', w=w, l=l, nf=1)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.M1 = PFET_01V8_Layout.instantiate(root, schematic=sch)
 
-        has_nwell = any(s.layer.name == 'NWELL' for s in pfet.shapes)
+        has_nwell = any(s.layer.name == 'NWELL' for s in root.get_all_shapes())
         print(f"  NWELL present: {has_nwell}")
         if not has_nwell:
             print("  ERROR: PFET should have NWELL")
             all_passed = False
             continue
 
-        if not run_drc(pfet, writer, drc):
+        if not run_drc(root, writer, drc):
             all_passed = False
 
     return all_passed
@@ -126,8 +129,9 @@ def test_tap_configurations():
         print(f"\n{desc}:")
         try:
             sch = sch_cls('M1', None, w=1.0, l=0.15, nf=1)
-            dev = lay_cls('M1', None, schematic=sch, tap=tap)
-            if not run_drc(dev, writer, drc):
+            root = SKY130LayoutCell(instance_name='top', parent=None)
+            root.M1 = lay_cls.instantiate(root, schematic=sch, tap=tap)
+            if not run_drc(root, writer, drc):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -169,8 +173,9 @@ def test_multi_finger():
         print(f"\n{desc}:")
         try:
             sch = sch_cls('M1', None, w=w, l=l, nf=nf)
-            dev = lay_cls('M1', None, schematic=sch, poly_contact=poly_contact)
-            if not run_drc(dev, writer, drc):
+            root = SKY130LayoutCell(instance_name='top', parent=None)
+            root.M1 = lay_cls.instantiate(root, schematic=sch, poly_contact=poly_contact)
+            if not run_drc(root, writer, drc):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -202,9 +207,10 @@ def test_lvs_nfet():
     for w, l, nf, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            sch = Nfet01v8('M1', None, w=w, l=l, nf=nf)
-            layout = NFET_01V8_Layout('M1', None, schematic=sch)
-            if not run_lvs(layout, sch, writer, lvs):
+            sch = Nfet01v8(instance_name='M1', w=w, l=l, nf=nf)
+            root = SKY130LayoutCell(instance_name='top', parent=None)
+            root.M1 = NFET_01V8_Layout.instantiate(root, schematic=sch)
+            if not run_lvs(root.M1[0], sch, writer, lvs):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -236,9 +242,10 @@ def test_lvs_pfet():
     for w, l, nf, desc in test_cases:
         print(f"\n{desc}:")
         try:
-            sch = Pfet01v8('M1', None, w=w, l=l, nf=nf)
-            layout = PFET_01V8_Layout('M1', None, schematic=sch)
-            if not run_lvs(layout, sch, writer, lvs):
+            sch = Pfet01v8(instance_name='M1', w=w, l=l, nf=nf)
+            root = SKY130LayoutCell(instance_name='top', parent=None)
+            root.M1 = PFET_01V8_Layout.instantiate(root, schematic=sch)
+            if not run_lvs(root.M1[0], sch, writer, lvs):
                 all_passed = False
         except Exception as e:
             print(f"  ERROR: {e}")

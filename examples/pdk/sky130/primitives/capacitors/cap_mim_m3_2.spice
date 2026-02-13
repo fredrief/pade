@@ -1,0 +1,6 @@
+* SKY130 MiM capacitor M4/M5 (CAPM2)
+
+.subckt cap_mim_m3_2 c0 c1
+.param w=10 l=10 mf=1
+XC c0 c1 sky130_fd_pr__cap_mim_m3_2 w={w} l={l} mf={mf}
+.ends cap_mim_m3_2

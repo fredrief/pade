@@ -1,11 +1,11 @@
 """Capacitor simulation runner."""
 
 from pathlib import Path
-import ltspice
 import numpy as np
 
 from pade.statement import Statement, Analysis, Save
 from pade.backends.ngspice.simulator import NgspiceSimulator
+from pade.backends.ngspice.results_reader import read_raw
 from pdk.sky130.config import config
 from src.testbenches.cap_ac import CapacitorAC
 
@@ -15,23 +15,23 @@ class CapRunner:
 
     Example:
         runner = CapRunner(w=10, l=10)
-        raw = runner.run('prelayout')
-        result = runner.evaluate(raw)
+        result = runner.run_and_evaluate('prelayout')
 
         # With PEX
-        raw_pex = runner.run('postlayout', pex={'C1': 'rc'})
+        result_pex = runner.run_and_evaluate('postlayout', pex={'C1': 'rc'})
     """
 
     def __init__(self, **kwargs):
         self.simulator = NgspiceSimulator(output_dir=config.sim_data_dir)
         self.default_kwargs = kwargs
 
-
     def _build_statements(self, **kwargs) -> list[Statement]:
         return [
-            Statement(f'.lib {config.sky130_lib} tt'),
+            Statement(f'.lib "{config.sky130_lib}" tt'),
             Analysis('ac', variation='dec',
-                     points=kwargs.get('points', 10), start=kwargs.get('fstart', '1k'), stop=kwargs.get('fstop', '1G')),
+                     points=kwargs.get('points', 10),
+                     start=kwargs.get('fstart', '1k'),
+                     stop=kwargs.get('fstop', '1G')),
             Save(['inp', 'i(Vac)']),
         ]
 
@@ -40,19 +40,18 @@ class CapRunner:
         merged = {**self.default_kwargs, **kwargs}
         tb = CapacitorAC(**merged)
         statements = self._build_statements(**merged)
-        return self.simulator.simulate(tb, statements, identifier)
+        return self.simulator.simulate(tb, statements, identifier, show_output=False)
 
     def evaluate(self, raw_file: Path) -> dict:
         """Parse results and compute capacitance."""
-        l = ltspice.Ltspice(str(raw_file))
-        l.parse()
+        data = read_raw(raw_file)
 
-        freq = l.get_frequency()
-        v_inp = l.get_data('v(inp)')
-        i_vac = l.get_data('i(vac)')
+        freq = np.abs(data['frequency'])
+        v_inp = data['v(inp)']
+        i_vac = data['i(vac)']
         Z = np.abs(v_inp / i_vac)
 
-        # Capacitance at 1MHz
+        # Capacitance at 1 MHz
         idx_1M = np.argmin(np.abs(freq - 1e6))
         C = 1 / (2 * np.pi * freq[idx_1M] * Z[idx_1M])
 

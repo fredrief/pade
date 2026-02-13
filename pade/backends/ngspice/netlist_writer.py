@@ -11,7 +11,7 @@ from pade.statement import Statement, Analysis, Options, Save, Include, IC
 
 
 # Primitive cell_name values
-SPICE_PRIMITIVES = {'R', 'C', 'L', 'V', 'I'}
+SPICE_PRIMITIVES = {'R', 'C', 'L', 'V', 'I', 'B'}
 
 
 def _is_netlist_cell(cell: Cell) -> bool:
@@ -23,7 +23,7 @@ def _is_netlist_cell(cell: Cell) -> bool:
 class SpiceNetlistWriter(NetlistWriter):
     """Generates SPICE format netlists for NGspice."""
 
-    def __init__(self, global_nets: str = '0', ascii_output: bool = False):
+    def __init__(self, global_nets: str = '0', ascii_output: bool = True):
         self.global_nets = global_nets
         self.ascii_output = ascii_output
 
@@ -125,7 +125,7 @@ class SpiceNetlistWriter(NetlistWriter):
 
         lines.append('* Top-level instances')
         for subcell in cell.get_subcells():
-            lines.append(self._format_instance(subcell))
+            lines.extend(self._format_instance(subcell))
         lines.append('')
 
         # Write other statements after instances
@@ -134,19 +134,9 @@ class SpiceNetlistWriter(NetlistWriter):
             if formatted:
                 lines.append(formatted)
 
-        # Add ASCII output if requested
+        # ASCII raw file format (easier to parse than binary)
         if self.ascii_output:
-            # Get signal names from Save statements
-            save_signals = []
-            if statements:
-                for stmt in statements:
-                    if isinstance(stmt, Save):
-                        save_signals = stmt.signals
-                        break
-
-            if save_signals:
-                signal_str = ' '.join(save_signals)
-                lines.append(f'.wrdata output.txt {signal_str}')
+            lines.append('.options filetype=ascii')
 
         lines.append('.end')
 
@@ -345,7 +335,7 @@ class SpiceNetlistWriter(NetlistWriter):
         lines.append(f'.subckt {eff_name} {terminals}')
 
         for subcell in cell.get_subcells():
-            lines.append(self._format_instance(subcell))
+            lines.extend(self._format_instance(subcell))
 
         lines.append(f'.ends {eff_name}')
         return '\n'.join(lines)
@@ -382,8 +372,8 @@ class SpiceNetlistWriter(NetlistWriter):
         
         return '\n'.join(result_lines).strip()
 
-    def _format_instance(self, cell: Cell) -> str:
-        """Format instance line in SPICE syntax."""
+    def _format_instance(self, cell: Cell) -> list[str]:
+        """Format instance line(s) in SPICE syntax. Returns a list (one per mult)."""
         unconnected = [t.name for t in cell.get_all_terminals() if t.net is None]
         if unconnected:
             raise RuntimeError(
@@ -394,34 +384,36 @@ class SpiceNetlistWriter(NetlistWriter):
         cell_name = cell.cell_name
         eff_name = self._get_effective_cell_name(cell)
 
-        inst_name = cell.instance_name
+        mult = max(1, int(getattr(cell, '_mult', 1)))
+
+        base_inst_name = cell.instance_name
         if self._is_primitive(cell):
-            if not inst_name[0].upper() == cell_name:
-                inst_name = cell_name + inst_name
+            if not base_inst_name[0].upper() == cell_name:
+                base_inst_name = cell_name + base_inst_name
 
-        # Handle primitives
-        if cell_name == 'R':
-            r = cell.parameters.get('r')
-            return f'{inst_name} {nets} {self._format_value(r.value)}'
-
-        elif cell_name == 'C':
-            c = cell.parameters.get('c')
-            return f'{inst_name} {nets} {self._format_value(c.value)}'
-
-        elif cell_name == 'L':
-            l = cell.parameters.get('l')
-            return f'{inst_name} {nets} {self._format_value(l.value)}'
-
-        elif cell_name == 'V':
-            return self._format_voltage_source(inst_name, nets, cell)
-
-        elif cell_name == 'I':
-            return self._format_current_source(inst_name, nets, cell)
-
-        else:
+        def one_line(inst_name: str) -> str:
+            if cell_name == 'R':
+                r = cell.parameters.get('r')
+                return f'{inst_name} {nets} {self._format_value(r.value)}'
+            if cell_name == 'C':
+                c = cell.parameters.get('c')
+                return f'{inst_name} {nets} {self._format_value(c.value)}'
+            if cell_name == 'L':
+                l = cell.parameters.get('l')
+                return f'{inst_name} {nets} {self._format_value(l.value)}'
+            if cell_name == 'V':
+                return self._format_voltage_source(inst_name, nets, cell)
+            if cell_name == 'I':
+                return self._format_current_source(inst_name, nets, cell)
+            if cell_name == 'B':
+                return self._format_bsource(inst_name, nets, cell)
             if not inst_name.startswith('X'):
                 inst_name = 'X' + inst_name
             return f'{inst_name} {nets} {eff_name}'
+
+        if mult == 1:
+            return [one_line(base_inst_name)]
+        return [one_line(f'{base_inst_name}_{i}') for i in range(mult)]
 
     def _format_voltage_source(self, inst_name: str, nets: str, cell: Cell) -> str:
         """Format voltage source."""
@@ -474,6 +466,16 @@ class SpiceNetlistWriter(NetlistWriter):
             return f'{inst_name} {nets} ac {self._format_value(ac.value)}'
         else:
             return f'{inst_name} {nets} dc 0'
+
+    def _format_bsource(self, inst_name: str, nets: str, cell: Cell) -> str:
+        """Format behavioral source (B)."""
+        expr = cell.parameters.get('expr')
+        if not expr:
+            raise RuntimeError(f'B source {cell.get_name_from_top()} has no expr parameter')
+        expr_str = expr.value if hasattr(expr, 'value') else expr
+        btype = cell.parameters.get('type')
+        btype_str = (btype.value if hasattr(btype, 'value') else btype or 'V').upper()
+        return f'{inst_name} {nets} {btype_str}={expr_str}'
 
     def _format_value(self, value) -> str:
         """Format parameter value for SPICE netlist."""

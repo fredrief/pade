@@ -28,5 +28,5 @@ class Testbench(Cell):
             **kwargs: Config options passed to all subcells
         """
         name = name or type(self).__name__
-        super().__init__(name, cell_name=name, **kwargs)
+        super().__init__(instance_name=name, cell_name=name, **kwargs)
         self.add_net('0')  # Add ground net by convention

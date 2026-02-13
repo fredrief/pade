@@ -35,7 +35,7 @@ class MOSFET_Layout(SKY130LayoutCell):
     SUB_TYPE = None
     DEFAULT_TAP = 'left'
 
-    def __init__(self, instance_name, parent, schematic,
+    def __init__(self, instance_name=None, parent=None, schematic=None,
                  tap=None, poly_contact=None, cell_name=None):
         tap = tap if tap is not None else self.DEFAULT_TAP
         poly_contact = poly_contact if poly_contact is not None else tap
@@ -118,8 +118,8 @@ class MOSFET_Layout(SKY130LayoutCell):
         licon_array_w = 2 * licon.W + licon.S
         mcon_array_w = 2 * mcon.W + mcon.S
         g.gate_cont_h = licon.W + 2 * licon.ENC_POLY
-        g.gate_m1_w = mcon_array_w + 2 * mcon.ENC_TOP
-        g.gate_m1_h = mcon.W + 2 * mcon.ENC_TOP
+        g.gate_m1_w = mcon_array_w + 2 * mcon.ENC_TOP_ADJ
+        g.gate_m1_h = mcon.W + 2 * mcon.ENC_TOP_ADJ
         li_gc_w = licon_array_w + 2 * li_enc
 
         # Gate contact X offset from device edge
@@ -144,7 +144,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         sd_licon_arr = sd_n_licon * licon.W + (sd_n_licon - 1) * licon.S if sd_n_licon > 1 else licon.W
         sd_n_mcon = self._calc_via_count(sd_licon_arr, mcon.W, mcon.S)
         sd_mcon_arr = sd_n_mcon * mcon.W + (sd_n_mcon - 1) * mcon.S if sd_n_mcon > 1 else mcon.W
-        g.sd_m1_w = sd_mcon_arr + 2 * mcon.ENC_TOP
+        g.sd_m1_w = sd_mcon_arr + 2 * mcon.ENC_TOP_ADJ
 
         # Poly extensions
         poly_ext_for_li = gc_offset_default + li_gc_w // 2 + li_spacing + li_enc
@@ -189,7 +189,7 @@ class MOSFET_Layout(SKY130LayoutCell):
             # Compute tap M1 inner edge distance from device edge
             tap_cx_offset = (r.TAP_MARGIN
                              + g.tap_width - r.TAP_DIFF_SPACE) // 2
-            tap_m1_hw = (mcon.W + 2 * mcon.ENC_TOP) // 2
+            tap_m1_hw = (mcon.W + 2 * mcon.ENC_TOP_ADJ) // 2
             tap_m1_margin = g.tap_width - tap_cx_offset - tap_m1_hw
 
             min_ext_diff_tap = r.DIFF_TAP_S - r.TAP_DIFF_SPACE
@@ -471,7 +471,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         cs = licon.W
         cs_space = licon.S
         li_enc = licon.ENC_LI
-        m1_enc = mcon.ENC_TOP
+        m1_enc = mcon.ENC_TOP_ADJ
 
         avail = width - 2 * licon.ENC_DIFF
         n_via = self._calc_via_count(avail, cs, cs_space)
@@ -517,7 +517,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         licon_size = licon.W
         licon_space = licon.S
         li_enc = licon.ENC_LI
-        m1_enc = mcon.ENC_TOP
+        m1_enc = mcon.ENC_TOP_ADJ
         poly_enc = licon.ENC_POLY
         mcon_size = mcon.W
         mcon_space = mcon.S
@@ -610,7 +610,7 @@ class MOSFET_Layout(SKY130LayoutCell):
         tap_cx = (tap_x0 + tap_x1) // 2
         mcon_size = mcon.W
         mcon_space = mcon.S
-        mcon_enc = mcon.ENC_TOP
+        mcon_enc = mcon.ENC_TOP_ADJ
 
         avail_h = (via_y1 - via_y0)
         n_mcon = max(1, self._calc_via_count(avail_h, mcon_size, mcon_space))
@@ -653,7 +653,7 @@ class NFET_01V8_Layout(MOSFET_Layout):
     SUB_TYPE = None
     DEFAULT_TAP = 'left'
 
-    def __init__(self, instance_name, parent, schematic,
+    def __init__(self, instance_name=None, parent=None, schematic=None,
                  tap=None, poly_contact=None):
         super().__init__(instance_name, parent, schematic=schematic,
                          tap=tap, poly_contact=poly_contact,
@@ -670,7 +670,7 @@ class PFET_01V8_Layout(MOSFET_Layout):
     SUB_TYPE = NWELL
     DEFAULT_TAP = 'right'
 
-    def __init__(self, instance_name, parent, schematic,
+    def __init__(self, instance_name=None, parent=None, schematic=None,
                  tap=None, poly_contact=None):
         super().__init__(instance_name, parent, schematic=schematic,
                          tap=tap, poly_contact=poly_contact,

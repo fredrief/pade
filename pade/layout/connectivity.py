@@ -24,10 +24,19 @@ class Short:
     bounds_a: tuple
     bounds_b: tuple
 
+    @staticmethod
+    def _fmt_bounds(b: tuple) -> str:
+        """Format bounds tuple as readable coordinate range."""
+        x0, y0, x1, y1 = b
+        return f'({x0}, {y0})..({x1}, {y1})'
+
     def __str__(self):
-        return (f"SHORT on {self.layer}: "
-                f"'{self.net_a}' ({self.source_a}) vs "
-                f"'{self.net_b}' ({self.source_b})")
+        lines = [
+            f"SHORT on {self.layer}: net '{self.net_a}' overlaps net '{self.net_b}'",
+            f"  shape A: {self.source_a}  at {self._fmt_bounds(self.bounds_a)}",
+            f"  shape B: {self.source_b}  at {self._fmt_bounds(self.bounds_b)}",
+        ]
+        return '\n'.join(lines)
 
 
 @dataclass
@@ -42,9 +51,9 @@ class ShortCheckResult:
     def summary(self) -> str:
         if self.clean:
             return "No shorts detected."
-        lines = [f"{len(self.shorts)} short(s) detected:\n"]
-        for s in self.shorts:
-            lines.append(f"  {s}")
+        lines = [f"{len(self.shorts)} short(s) detected:"]
+        for i, s in enumerate(self.shorts, 1):
+            lines.append(f"\n[{i}] {s}")
         return '\n'.join(lines)
 
     def __str__(self):

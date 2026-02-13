@@ -11,6 +11,7 @@ sys.path.insert(0, str(examples_dir))
 
 from pade.backends.gds.layout_writer import GDSWriter
 from pdk.sky130.config import config
+from pdk.sky130.layout import SKY130LayoutCell
 from pdk.sky130.layers import sky130_layers
 from pdk.sky130.primitives.capacitors.layout import CapMimLayout
 from pdk.sky130.primitives.capacitors.schematic import CapMim
@@ -22,7 +23,7 @@ def run_drc(cell, writer, drc):
     """Write GDS and run DRC, return True if passed."""
     writer.write(cell, config.layout_dir)
     result = drc.run(cell)
-    print(f"  Shapes: {len(cell.shapes)}, bbox: {cell.bbox()}")
+    print(f"  Shapes: {len(cell.get_all_shapes())}, bbox: {cell.bbox()}")
     print(f"  DRC: {'PASS' if result.passed else 'FAIL'}")
     if not result.passed:
         with open(result.report_path) as f:
@@ -62,9 +63,10 @@ def test_drc_m4():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc} (metal=4):")
-        sch = CapMim('C1', w=w, l=l, metal=4)
-        cap = CapMimLayout('C1', None, schematic=sch)
-        if not run_drc(cap, writer, drc):
+        sch = CapMim(instance_name='C1', w=w, l=l, metal=4)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.C1 = CapMimLayout.instantiate(root, schematic=sch)
+        if not run_drc(root, writer, drc):
             all_passed = False
     return all_passed
 
@@ -87,9 +89,10 @@ def test_drc_m3():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc} (metal=3):")
-        sch = CapMim('C1', w=w, l=l, metal=3)
-        cap = CapMimLayout('C1', None, schematic=sch)
-        if not run_drc(cap, writer, drc):
+        sch = CapMim(instance_name='C1', w=w, l=l, metal=3)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.C1 = CapMimLayout.instantiate(root, schematic=sch)
+        if not run_drc(root, writer, drc):
             all_passed = False
     return all_passed
 
@@ -111,9 +114,10 @@ def test_lvs_m4():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc} (metal=4):")
-        schematic = CapMim('C1', w=w, l=l, metal=4)
-        layout = CapMimLayout('C1', None, schematic=schematic)
-        if not run_lvs(layout, schematic, writer, lvs):
+        schematic = CapMim(instance_name='C1', w=w, l=l, metal=4)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.C1 = CapMimLayout.instantiate(root, schematic=schematic)
+        if not run_lvs(root.C1[0], schematic, writer, lvs):
             all_passed = False
     return all_passed
 
@@ -135,9 +139,10 @@ def test_lvs_m3():
     all_passed = True
     for w, l, desc in test_cases:
         print(f"\n{desc} (metal=3):")
-        schematic = CapMim('C1', w=w, l=l, metal=3)
-        layout = CapMimLayout('C1', None, schematic=schematic)
-        if not run_lvs(layout, schematic, writer, lvs):
+        schematic = CapMim(instance_name='C1', w=w, l=l, metal=3)
+        root = SKY130LayoutCell(instance_name='top', parent=None)
+        root.C1 = CapMimLayout.instantiate(root, schematic=schematic)
+        if not run_lvs(root.C1[0], schematic, writer, lvs):
             all_passed = False
     return all_passed
 

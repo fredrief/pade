@@ -31,7 +31,7 @@ class NgspiceSimulator(Simulator):
                  output_dir: Union[str, Path],
                  command_options: Optional[list[str]] = None,
                  global_nets: str = '0',
-                 ascii_output: bool = False):
+                 ascii_output: bool = True):
         self.output_dir = Path(output_dir)
         self.command_options = command_options or []
         self.writer = SpiceNetlistWriter(global_nets=global_nets, ascii_output=ascii_output)

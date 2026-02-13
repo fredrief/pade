@@ -25,13 +25,12 @@ class NetlistCell(Cell):
         source_path: Path to the source netlist file
     """
 
-    def __init__(self, instance_name: str, parent: Optional[Cell] = None,
+    def __init__(self, instance_name: Optional[str] = None, parent: Optional[Cell] = None,
                  cell_name: Optional[str] = None, source_path: Optional[str] = None,
                  terminals: list[str] = None):
         if terminals is None:
             raise ValueError("NetlistCell requires terminals")
-
-        super().__init__(instance_name, parent, cell_name=cell_name)
+        super().__init__(instance_name=instance_name, parent=parent, cell_name=cell_name)
         self.source_path = source_path
 
         for term_name in terminals:
@@ -48,18 +47,25 @@ def _make_subckt_class(subckt_name: str, source_path: str,
     """
 
     class _NetlistCell(NetlistCell):
-        def __init__(self, instance_name: str, parent: Optional[Cell] = None, **kwargs):
+        def __init__(self, instance_name=None, parent=None, **kwargs):
             super().__init__(
-                instance_name, parent,
+                instance_name=instance_name,
+                parent=parent,
                 cell_name=subckt_name,
                 source_path=source_path,
                 terminals=terminal_names,
             )
+            mult = kwargs.pop('mult', None)
             for name, param in param_defaults.items():
                 if name in kwargs:
                     self.set_parameter(name, str(kwargs[name]), default=param.default)
                 else:
                     self.set_parameter(name, param.value, default=param.default)
+            for name, value in kwargs.items():
+                if name not in param_defaults:
+                    self.set_parameter(name, str(value))
+            if mult is not None:
+                self.set_multiplier(mult)
 
         @classmethod
         def info(cls) -> str:

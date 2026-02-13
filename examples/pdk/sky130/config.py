@@ -1,14 +1,14 @@
-"""SKY130 tool configuration (paths for Magic, Netgen, etc.)."""
+"""SKY130 tool configuration (paths for Magic, Netgen, synthesis, etc.)."""
 
 import os
 from pathlib import Path
 
 
 class SKY130Config:
-    """Configuration for SKY130 PDK tools (Magic, Netgen).
+    """Configuration for SKY130 PDK tools.
 
-    Manages paths for layout files, work directories, and PDK tool files.
-    Project root is auto-detected relative to this file (examples/).
+    Manages paths for layout files, work directories, PDK tool files,
+    and standard cell libraries for digital synthesis and P&R.
 
     Attributes:
         project_root: Root directory for project files (examples/)
@@ -22,6 +22,13 @@ class SKY130Config:
             extracts the bulk node as SUB; LVS replaces SUB with this name in
             the layout netlist so pin names match. Set to "SUB" to accept
             Magic's default (no replacement).
+        liberty_tt: Liberty timing file (typical corner)
+        liberty_ff: Liberty timing file (fast corner)
+        liberty_ss: Liberty timing file (slow corner)
+        std_cell_lef: LEF file for sky130_fd_sc_hd
+        std_cell_techlef: Tech LEF for sky130_fd_sc_hd
+        std_cell_verilog: Verilog models for gate-level simulation
+        std_cell_spice: SPICE models for gate-level co-simulation
 
     Example:
         from pdk.sky130.config import config
@@ -36,10 +43,23 @@ class SKY130Config:
             pdk_root or os.environ.get('PDK_ROOT', os.path.expanduser('~/.ciel'))
         )
         self.sky130_lib = self.pdk_root / 'sky130A/libs.tech/combined/sky130.lib.spice'
+        self.sky130_slim_lib = self.project_root / 'pdk/sky130/sky130_slim.lib.spice'
 
-        # PDK tool paths
+        # PDK tool paths (analog)
         self.tech_file = self.pdk_root / 'sky130A/libs.tech/magic/sky130A.tech'
         self.netgen_setup = self.pdk_root / 'sky130A/libs.tech/netgen/sky130A_setup.tcl'
+
+        # Standard cell library paths (digital)
+        _sc = self.pdk_root / 'sky130A/libs.ref/sky130_fd_sc_hd'
+        self.liberty_tt = _sc / 'lib/sky130_fd_sc_hd__tt_025C_1v80.lib'
+        self.liberty_ff = _sc / 'lib/sky130_fd_sc_hd__ff_100C_1v65.lib'
+        self.liberty_ss = _sc / 'lib/sky130_fd_sc_hd__ss_100C_1v60.lib'
+        self.std_cell_lef = _sc / 'lef/sky130_fd_sc_hd.lef'
+        self.std_cell_lef_ef = _sc / 'lef/sky130_ef_sc_hd.lef'
+        self.std_cell_techlef = _sc / 'techlef/sky130_fd_sc_hd__nom.tlef'
+        self.std_cell_verilog = _sc / 'verilog/sky130_fd_sc_hd.v'
+        self.std_cell_spice = _sc / 'spice/sky130_fd_sc_hd.spice'
+        self.std_cell_gds = _sc / 'gds/sky130_fd_sc_hd.gds'
 
         # Project directory paths
         self.layout_dir = self.project_root / 'layout'
